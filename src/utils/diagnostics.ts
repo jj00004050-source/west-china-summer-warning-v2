@@ -13,29 +13,6 @@ export type DistributionMetric =
   | 'otaShare'
   | 'onlineShare'
 
-export type BookingBucket = '0预定' | '0%-10%' | '10%-30%' | '30%-50%' | '50%-80%' | '80%-100%' | '满房'
-
-export const BOOKING_BUCKETS: BookingBucket[] = ['0预定', '0%-10%', '10%-30%', '30%-50%', '50%-80%', '80%-100%', '满房']
-export const BOOKING_BUCKET_COLORS: Record<BookingBucket, string> = {
-  '0预定': '#E5484D',
-  '0%-10%': '#F59E0B',
-  '10%-30%': '#F7B955',
-  '30%-50%': '#9FC5FA',
-  '50%-80%': '#5B9AF3',
-  '80%-100%': '#2F6BFF',
-  '满房': '#16A34A',
-}
-
-export const bookingBucket = (row: MetricRow): BookingBucket => {
-  if (!row.bookedRooms || !row.bookingRate) return '0预定'
-  if (row.bookingRate >= 1) return '满房'
-  if (row.bookingRate < .1) return '0%-10%'
-  if (row.bookingRate < .3) return '10%-30%'
-  if (row.bookingRate < .5) return '30%-50%'
-  if (row.bookingRate < .8) return '50%-80%'
-  return '80%-100%'
-}
-
 export const isDirectStore = (row: MetricRow) =>
   ['直营', '自营', '直管'].some(keyword => `${row.operationType}${row.managementType}`.includes(keyword))
 

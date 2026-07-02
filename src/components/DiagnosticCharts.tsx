@@ -1,18 +1,14 @@
 import { useMemo, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
 import type { ComparisonRow, MetricRow, SnapshotRecord } from '../types/data'
-import { aggregate, aggregateBy } from '../utils/metrics'
+import { aggregate } from '../utils/metrics'
 import { fmtMoney, fmtPct, fmtPp, riskText } from '../utils/formatter'
 import {
-  BOOKING_BUCKET_COLORS,
-  BOOKING_BUCKETS,
-  bookingBucket,
   boxStats,
   isDirectStore,
   metricValue,
   storeChannelShares,
   weightedZoneRates,
-  type BookingBucket,
   type DistributionMetric,
 } from '../utils/diagnostics'
 
@@ -263,48 +259,6 @@ export function RiskHeatmap({ days, level, title, batch, comparisonLabel, onSele
   </section>
 }
 
-export function BookingStructureChart({ rows, groupKey, title, onSelect }: {
-  rows: MetricRow[]
-  groupKey: 'area' | 'revenueZone'
-  title: string
-  onSelect: (name: string, bucket: BookingBucket) => void
-}) {
-  const groups = aggregateBy(rows, groupKey).sort((a, b) => (a.bookingRate || 0) - (b.bookingRate || 0))
-  const option = {
-    grid: { left: 135, right: 45, top: 20, bottom: 45 },
-    tooltip: {
-      trigger: 'axis',
-      axisPointer: { type: 'shadow' },
-      backgroundColor: 'rgba(255,255,255,.98)',
-      borderColor: '#c8d8e9',
-      textStyle: { color: '#29445f', fontSize: 10 },
-      formatter: (params: Array<{ name: string; seriesName: string; color: string; data: { value: number; count: number } }>) => {
-        if (!params.length) return ''
-        return `<b>${params[0].name}</b>${params.map(item => `<div style="display:flex;align-items:center;justify-content:space-between;gap:24px;margin-top:7px"><span><i style="display:inline-block;width:9px;height:9px;margin-right:7px;border-radius:50%;background:${item.color}"></i>${item.seriesName}</span><strong>${Math.round(item.data.value)}%（${item.data.count}家）</strong></div>`).join('')}`
-      },
-    },
-    legend: { bottom: 4, data: BOOKING_BUCKETS, textStyle: { color: '#71859a', fontSize: 8 }, itemWidth: 10, itemHeight: 7 },
-    xAxis: { type: 'value', max: 100, axisLabel: { formatter: '{value}%', color: '#8294a7', fontSize: 8 }, splitLine: { lineStyle: { color: '#edf2f7' } } },
-    yAxis: { type: 'category', data: groups.map(group => group.name), axisLabel: { color: '#526b84', fontSize: 9, width: 120, overflow: 'truncate' }, axisLine: { show: false } },
-    dataZoom: groups.length > 12 ? [{ type: 'slider', yAxisIndex: 0, right: 5, width: 10, start: Math.max(0, 100 - 12 / groups.length * 100), end: 100, borderColor: '#dbe6f1', fillerColor: '#dcecff', handleStyle: { color: '#3B82F6' } }, { type: 'inside', yAxisIndex: 0 }] : [],
-    series: BOOKING_BUCKETS.map(bucket => ({
-      name: bucket,
-      type: 'bar',
-      stack: 'total',
-      barWidth: 18,
-      itemStyle: { color: BOOKING_BUCKET_COLORS[bucket], borderRadius: bucket === '满房' ? [0, 5, 5, 0] : 0 },
-      data: groups.map(group => {
-        const count = group.rows.filter(row => bookingBucket(row) === bucket).length
-        return { value: group.rows.length ? count / group.rows.length * 100 : 0, count, group: group.name, bucket }
-      }),
-    })),
-  }
-  return <section className="light-card diagnostic-card structure-card">
-    <div className="light-card-head"><div><h2>{title}</h2><p>展示门店预订率结构，点击区间联动筛选门店明细</p></div></div>
-    <ReactECharts option={option} style={{ height: 440 }} onEvents={{ click: (params: { data?: { group: string; bucket: BookingBucket } }) => params.data && onSelect(params.data.group, params.data.bucket) }}/>
-  </section>
-}
-
 export function RevenueZoneRelativeScatter({ rows, zoneName, onStore }: { rows: MetricRow[]; zoneName: string; onStore: (row: MetricRow) => void }) {
   const zoneRate = aggregate(rows).bookingRate
   const points = rows.map(row => ({
@@ -324,22 +278,4 @@ export function RevenueZoneRelativeScatter({ rows, zoneName, onStore }: { rows: 
     series: [{ type: 'scatter', data: points, symbolSize: (value: number[]) => value[2], itemStyle: { opacity: .82, borderColor: '#fff', borderWidth: 1.5 }, markLine: { silent: true, symbol: 'none', lineStyle: { color: '#91a9c1', type: 'dashed' }, data: [{ xAxis: 0 }, { yAxis: 0 }] } }],
   }
   return <section className="light-card diagnostic-card relative-scatter-card"><div className="light-card-head"><div><h2>{zoneName} · 门店相对表现</h2><p>仅在同一收益管理商圈内比较相对预订表现与RP缺口，点击门店查看单店诊断</p></div></div><ReactECharts option={option} style={{ height: 390 }} onEvents={{ click: (params: { data?: typeof points[number] }) => params.data && onStore(params.data.row) }}/></section>
-}
-
-export function DirectOperationPanel({ rows }: { rows: MetricRow[] }) {
-  const direct = rows.filter(isDirectStore)
-  const other = rows.filter(row => !isDirectStore(row))
-  const directM = aggregate(direct)
-  const otherM = aggregate(other)
-  const allRiskRows = direct.filter(row => row.risk === 'high' || row.risk === 'watch')
-  const riskRows = [...allRiskRows].sort((a, b) => (a.rpGap ?? 0) - (b.rpGap ?? 0)).slice(0, 8)
-  return <section className="light-card direct-diagnostic">
-    <div className="light-card-head"><div><h2>直营店专项</h2><p>按经营类型 / 管理类型中的直营、自营、直管关键词识别</p></div></div>
-    <div className="direct-compare">
-      <article><small>直营店</small><b>{direct.length} 家</b><span>预订率 {fmtPct(directM.bookingRate)}</span><span>在手ADR {fmtMoney(directM.adr)}</span><span>理论RP {fmtMoney(directM.rp)}</span></article>
-      <article><small>非直营店</small><b>{other.length} 家</b><span>预订率 {fmtPct(otherM.bookingRate)}</span><span>在手ADR {fmtMoney(otherM.adr)}</span><span>理论RP {fmtMoney(otherM.rp)}</span></article>
-      <article className="warning"><small>直营风险门店</small><b>{allRiskRows.length} 家</b><span>0预定 {direct.filter(row => row.bookedRooms === 0).length} 家</span><span>低于10% {direct.filter(row => (row.bookingRate || 0) < .1).length} 家</span></article>
-    </div>
-    <div className="direct-risk-list">{riskRows.map(row => <div key={row.whCode}><span><b>{row.name}</b><small>{row.revenueZone || '未归属收益管理商圈'}</small></span><em>{fmtPct(row.bookingRate)}</em><strong className={(row.rpGap || 0) < 0 ? 'negative' : 'positive'}>{fmtMoney(row.rpGap)}</strong></div>)}</div>
-  </section>
 }

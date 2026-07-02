@@ -22,14 +22,11 @@ import { mergePreviousByTargetDate, previousFinalAsBatch } from './utils/snapsho
 import ChannelDrilldownView from './components/ChannelDrilldownView'
 import AdminDashboard from './components/AdminDashboard'
 import {
-  BookingStructureChart,
-  DirectOperationPanel,
   DistributionBoxPlot,
   RevenueZoneRelativeScatter,
   RiskHeatmap,
   type DiagnosticDay,
 } from './components/DiagnosticCharts'
-import { bookingBucket, type BookingBucket, type DistributionMetric } from './utils/diagnostics'
 import { matchesRenovationFilter, matchesStoreType, type RenovationFilter, type StoreTypeFilter } from './utils/storeTypes'
 
 const ALL = '全部'
@@ -49,13 +46,8 @@ export default function App() {
   const [loadError, setLoadError] = useState('')
   const [filters, setFilters] = useState<Filters>(defaults())
   const [view, setView] = useState<DashboardView>('overview')
-  const [areaTab, setAreaTab] = useState<'risk' | 'distribution' | 'direct' | 'detail'>('risk')
   const [selectedStore, setSelectedStore] = useState<MetricRow | null>(null)
   const [focusedStoreCode, setFocusedStoreCode] = useState('')
-  const [diagnosticBucket, setDiagnosticBucket] = useState<BookingBucket | null>(null)
-  const [diagnosticPriorityCodes, setDiagnosticPriorityCodes] = useState<string[]>([])
-  const [diagnosticSortMetric, setDiagnosticSortMetric] = useState<DistributionMetric | null>(null)
-  const [highlightStoreCode, setHighlightStoreCode] = useState('')
   const [storeTypeFilter, setStoreTypeFilter] = useState<StoreTypeFilter>('全部门店')
   const [renovationFilter, setRenovationFilter] = useState<RenovationFilter>('全部')
   const [openingAgeFilter, setOpeningAgeFilter] = useState<string[]>([])
@@ -183,39 +175,29 @@ export default function App() {
   const setChannel = (channel: string) => setFilters(f => ({ ...f, channel }))
   const drillProvince = (province: string, dayOffset = filters.dayOffset) => {
     setFilters(current => ({ ...current, dayOffset, province, area: ALL, city: ALL, district: ALL, businessZone: ALL, revenueZone: ALL, store: ALL }))
-    setDiagnosticBucket(null); setDiagnosticPriorityCodes([]); setHighlightStoreCode('')
     setView('province')
     requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }))
   }
-  const drillArea = (area: string, province: string, dayOffset = filters.dayOffset, metric: DistributionMetric | null = null, priorityCodes: string[] = []) => {
+  const drillArea = (area: string, province: string, dayOffset = filters.dayOffset) => {
     setFilters(current => ({ ...current, dayOffset, province, area, city: ALL, district: ALL, businessZone: ALL, revenueZone: ALL, store: ALL }))
-    setDiagnosticBucket(null); setDiagnosticPriorityCodes(priorityCodes); setDiagnosticSortMetric(metric); setHighlightStoreCode('')
-    setAreaTab(priorityCodes.length ? 'detail' : 'risk')
     setView('area')
     requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }))
   }
-  const drillZone = (revenueZone: string, dayOffset = filters.dayOffset, bucket: BookingBucket | null = null) => {
+  const drillZone = (revenueZone: string, dayOffset = filters.dayOffset) => {
     setFilters(current => ({ ...current, dayOffset, revenueZone, store: ALL }))
-    setDiagnosticBucket(bucket); setDiagnosticPriorityCodes([]); setHighlightStoreCode('')
     setView('store')
     requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }))
   }
-  const drillOutlierStore = (store: MetricRow, metric: DistributionMetric) => {
-    setFilters(current => ({ ...current, province: store.province, area: store.area, revenueZone: ALL, store: ALL }))
-    setDiagnosticSortMetric(metric); setDiagnosticPriorityCodes([store.whCode]); setHighlightStoreCode(store.whCode)
-    setFocusedStoreCode(store.whCode); setAreaTab('detail'); setView('area')
-    requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }))
-  }
-  const visibleStoreRows = diagnosticBucket ? rows.filter(row => bookingBucket(row) === diagnosticBucket) : rows
+  const drillOutlierStore = (store: MetricRow) => drillArea(store.area, store.province, store.dayOffset)
   const openingAgeOptions = [...new Set(unfilteredRows.map(row => openingAgeOption(row.openDate, targetDate)))]
     .sort((a, b) => a === MISSING_OPENING_DATE ? -1 : b === MISSING_OPENING_DATE ? 1 : Number(a.replace('年', '')) - Number(b.replace('年', '')))
-  const openingAgeFilteredStoreRows = visibleStoreRows
+  const openingAgeFilteredStoreRows = rows
   const typeFilteredStoreRows = openingAgeFilteredStoreRows.filter(row => matchesStoreType(row, storeTypeFilter) && matchesRenovationFilter(row, renovationFilter))
   const typeFilteredCodes = new Set(typeFilteredStoreRows.map(row => row.whCode))
   const typeFilteredChannelRows = channelRows.filter(row => typeFilteredCodes.has(row.whCode))
   const typeFilteredPreviousChannelRows = previousChannelRows.filter(row => typeFilteredCodes.has(row.whCode))
   const typedFocusedStore = focusedStore && typeFilteredCodes.has(focusedStore.whCode) ? focusedStore : null
-  const storeScopedView = view === 'store' || (view === 'area' && areaTab === 'detail')
+  const storeScopedView = view === 'store'
   const kpiRows = storeScopedView ? typeFilteredStoreRows : rows
   const kpiComparisonRows = storeScopedView ? comparisonRows.filter(row => typeFilteredCodes.has(row.whCode)) : comparisonRows
   const kpiPreviousRows = storeScopedView ? prevRows.filter(row => typeFilteredCodes.has(row.whCode)) : prevRows
@@ -227,26 +209,19 @@ export default function App() {
   const kpiPrevZeroCount = storeScopedView ? kpiPreviousRows.filter(row => row.bookedRooms === 0 && (countMissingAsZero || !row.tags.includes('缺失预订数据'))).length : prevZeroCount
   const kpiHasPrevious = storeScopedView ? rawPrevRows.some(row => typeFilteredCodes.has(row.whCode)) : rawPrevRows.length > 0
   const exportView = () => {
-    const exportRows = view === 'store' || (view === 'area' && areaTab === 'detail') ? typeFilteredStoreRows : rows
+    const exportRows = view === 'store' ? typeFilteredStoreRows : rows
     const wb = utils.book_new(); utils.book_append_sheet(wb, utils.json_to_sheet(exportRows), '当前视图'); writeFile(wb, `华西预警_${filters.dayOffset}_${selected?.batchTime || ''}.xlsx`)
   }
   const channel = <ChannelPanel rows={channelRows} previousRows={previousChannelRows} comparisonLabel={comparisonLabel} onChannel={setChannel}/>
   const map = <ChinaWestMap rows={rows} comparisonRows={comparisonRows} countMissingAsZero={countMissingAsZero} selected={filters.province} onSelect={province => setFilters(f => ({ ...f, province, area: ALL, city: ALL, district: ALL, businessZone: ALL, revenueZone: ALL, store: ALL }))} onCity={city => setFilters(f => ({ ...f, city, district: ALL, businessZone: ALL, revenueZone: ALL, store: ALL }))} onRevenueZone={revenueZone => drillZone(revenueZone)} day={filters.dayOffset} batch={selected?.batchTime || '--'} comparisonLabel={comparisonLabel}/>
   const areaBreadcrumb = filters.area !== ALL && <div className="diagnostic-breadcrumb"><button onClick={() => { setFilters(current => ({ ...current, province: ALL, area: ALL, city: ALL, district: ALL, revenueZone: ALL, store: ALL })); setView('overview') }}>华西大区</button><span>›</span><button onClick={() => { setFilters(current => ({ ...current, area: ALL, city: ALL, district: ALL, revenueZone: ALL, store: ALL })); setView('province') }}>{filters.province}</button><span>›</span><b>{filters.area}</b>{filters.revenueZone !== ALL && <><span>›</span><strong>{filters.revenueZone}</strong></>}</div>
   const viewContent = view === 'overview' ? <><div className="light-middle">{map}{channel}</div><RiskHeatmap days={diagnosticDays} level="province" title="省区 D0-D6 变化监控热力图" batch={selected?.batchTime || '--'} comparisonLabel={comparisonLabel} onSelect={(province, dayOffset) => drillProvince(province, dayOffset)}/><DistributionBoxPlot rows={rows} channelRows={channelRows} groupKey="province" title="省区门店分布箱形图" targetDate={targetDate} batch={selected?.batchTime || '--'} onGroup={province => drillProvince(province)} onStore={store => drillProvince(store.province)}/><ProvinceOverview rows={rows} comparisonRows={comparisonRows} channelRows={channelRows} countMissingAsZero={countMissingAsZero} onSelect={province => drillProvince(province)}/></>
-    : view === 'province' ? <div className="view-stack"><div className="province-diagnostic-grid">{map}<DistributionBoxPlot rows={rows} channelRows={channelRows} groupKey="area" title="片区门店分布箱形图" targetDate={targetDate} batch={selected?.batchTime || '--'} onGroup={(area, metric, priorityCodes) => drillArea(area, rows.find(row => row.area === area)?.province || filters.province, filters.dayOffset, metric, priorityCodes)} onStore={drillOutlierStore}/></div><RiskHeatmap days={diagnosticDays} level="area" title="片区 D0-D6 变化监控热力图" batch={selected?.batchTime || '--'} comparisonLabel={comparisonLabel} onSelect={(area, dayOffset) => drillArea(area, rows.find(row => row.area === area)?.province || filters.province, dayOffset)}/><BookingStructureChart rows={rows} groupKey="area" title="各片区门店预订率结构" onSelect={(area, bucket) => { const province = rows.find(row => row.area === area)?.province || filters.province; drillArea(area, province); setDiagnosticBucket(bucket); setAreaTab('detail') }}/><div className="analysis-grid"><RankingChart rows={rows} level="city" title="城市预订率树状图" variant="treemap" onSelect={city => setFilters(f => ({ ...f, city }))}/>{channel}</div><ProvinceCityMatrix rows={rows} comparisonRows={comparisonRows} channelRows={channelRows} onCity={city => setFilters(f => ({ ...f, city, district: ALL, revenueZone: ALL, store: ALL }))}/></div>
-    : view === 'area' ? <div className="view-stack">{areaBreadcrumb}<div className="diagnostic-tabs"><button className={areaTab === 'risk' ? 'active' : ''} onClick={() => setAreaTab('risk')}>片区总览</button><button className={areaTab === 'distribution' ? 'active' : ''} onClick={() => setAreaTab('distribution')}>门店分布</button><button className={areaTab === 'direct' ? 'active' : ''} onClick={() => setAreaTab('direct')}>直营店专项</button><button className={areaTab === 'detail' ? 'active' : ''} onClick={() => setAreaTab('detail')}>片区-商圈矩阵 / 门店明细</button></div>
-      {areaTab === 'risk' && <><RiskHeatmap days={diagnosticDays} level="revenueZone" title="商圈 D0-D6 变化监控热力图" batch={selected?.batchTime || '--'} comparisonLabel={comparisonLabel} onSelect={(zone, dayOffset) => drillZone(zone, dayOffset)}/><RankingChart rows={rows} level="revenueZone" title="收益管理商圈排名" onSelect={revenueZone => drillZone(revenueZone)}/></>}
-      {areaTab === 'distribution' && <><BookingStructureChart rows={rows} groupKey="revenueZone" title="各收益管理商圈门店预订率结构" onSelect={(zone, bucket) => drillZone(zone, filters.dayOffset, bucket)}/><DistributionBoxPlot rows={rows} channelRows={channelRows} groupKey="revenueZone" title="收益管理商圈门店分布箱形图" targetDate={targetDate} batch={selected?.batchTime || '--'} onGroup={(zone) => drillZone(zone)} onStore={store => { setHighlightStoreCode(store.whCode); setFocusedStoreCode(store.whCode); setSelectedStore(store) }}/></>}
-      {areaTab === 'direct' && <DirectOperationPanel rows={rows}/>}
-      {areaTab === 'detail' && <><StoreSpecialtyPanel rows={openingAgeFilteredStoreRows} comparisonRows={comparisonRows} channelRows={channelRows} value={storeTypeFilter} renovationFilter={renovationFilter} openingAgeOptions={openingAgeOptions} openingAgeFilter={openingAgeFilter} priceSettings={data.settings?.priceAdvice} onChange={next => { setStoreTypeFilter(next); setRenovationFilter('全部') }} onRenovationChange={next => { setRenovationFilter(next); setStoreTypeFilter('全部门店') }} onOpeningAgeChange={setOpeningAgeFilter}/><div className="analysis-grid"><ChannelPanel rows={typeFilteredChannelRows} previousRows={typeFilteredPreviousChannelRows} comparisonLabel={comparisonLabel} onChannel={setChannel}/><AreaRevenueZoneMatrix rows={typeFilteredStoreRows} comparisonRows={comparisonRows} onRevenueZone={revenueZone => drillZone(revenueZone)}/></div><StoreWarningTable rows={typeFilteredStoreRows} benchmarkRows={rows} comparisonRows={comparisonRows} channelRows={typeFilteredChannelRows} comparisonLabel={comparisonLabel} priceSettings={data.settings?.priceAdvice} storeTypeFilter={storeTypeFilter} renovationFilter={renovationFilter} onStore={setSelectedStore} priorityCodes={diagnosticPriorityCodes} highlightCode={highlightStoreCode} initialDiagnosticSort={diagnosticSortMetric}/></>}
-    </div>
-    : view === 'store' ? <div className="view-stack">{areaBreadcrumb}<StoreSpecialtyPanel rows={openingAgeFilteredStoreRows} comparisonRows={comparisonRows} channelRows={channelRows} value={storeTypeFilter} renovationFilter={renovationFilter} openingAgeOptions={openingAgeOptions} openingAgeFilter={openingAgeFilter} priceSettings={data.settings?.priceAdvice} onChange={next => { setStoreTypeFilter(next); setRenovationFilter('全部') }} onRenovationChange={next => { setRenovationFilter(next); setStoreTypeFilter('全部门店') }} onOpeningAgeChange={setOpeningAgeFilter}/>{filters.revenueZone !== ALL && <RevenueZoneRelativeScatter rows={typeFilteredStoreRows} zoneName={filters.revenueZone} onStore={setSelectedStore}/>}<StoreChannelComposition stores={typeFilteredStoreRows} store={typedFocusedStore} rows={typedFocusedStore ? typeFilteredChannelRows.filter(row => row.whCode === typedFocusedStore.whCode) : []} previousRows={typedFocusedStore ? typeFilteredPreviousChannelRows.filter(row => row.whCode === typedFocusedStore.whCode) : []} comparisonLabel={comparisonLabel} onDetail={setSelectedStore}/><StoreWarningTable rows={typeFilteredStoreRows} benchmarkRows={rows} comparisonRows={comparisonRows} channelRows={typeFilteredChannelRows} comparisonLabel={comparisonLabel} priceSettings={data.settings?.priceAdvice} storeTypeFilter={storeTypeFilter} renovationFilter={renovationFilter} onStore={store => { setFocusedStoreCode(store.whCode); setSelectedStore(store) }} priorityCodes={diagnosticPriorityCodes} highlightCode={highlightStoreCode} initialDiagnosticSort={diagnosticSortMetric}/></div>
+    : view === 'province' ? <div className="view-stack"><div className="province-diagnostic-grid">{map}<DistributionBoxPlot rows={rows} channelRows={channelRows} groupKey="area" title="片区门店分布箱形图" targetDate={targetDate} batch={selected?.batchTime || '--'} onGroup={area => drillArea(area, rows.find(row => row.area === area)?.province || filters.province)} onStore={drillOutlierStore}/></div><RiskHeatmap days={diagnosticDays} level="area" title="片区 D0-D6 变化监控热力图" batch={selected?.batchTime || '--'} comparisonLabel={comparisonLabel} onSelect={(area, dayOffset) => drillArea(area, rows.find(row => row.area === area)?.province || filters.province, dayOffset)}/><div className="analysis-grid"><RankingChart rows={rows} level="city" title="城市预订率树状图" variant="treemap" onSelect={city => setFilters(f => ({ ...f, city }))}/>{channel}</div><ProvinceCityMatrix rows={rows} comparisonRows={comparisonRows} channelRows={channelRows} onCity={city => setFilters(f => ({ ...f, city, district: ALL, revenueZone: ALL, store: ALL }))}/></div>
+    : view === 'area' ? <div className="view-stack">{areaBreadcrumb}<RiskHeatmap days={diagnosticDays} level="revenueZone" title="商圈 D0-D6 变化监控热力图" batch={selected?.batchTime || '--'} comparisonLabel={comparisonLabel} onSelect={(zone, dayOffset) => drillZone(zone, dayOffset)}/><AreaRevenueZoneMatrix rows={rows} comparisonRows={comparisonRows} channelRows={channelRows} onRevenueZone={revenueZone => drillZone(revenueZone)}/></div>
+    : view === 'store' ? <div className="view-stack">{areaBreadcrumb}<StoreSpecialtyPanel rows={openingAgeFilteredStoreRows} comparisonRows={comparisonRows} channelRows={channelRows} value={storeTypeFilter} renovationFilter={renovationFilter} openingAgeOptions={openingAgeOptions} openingAgeFilter={openingAgeFilter} priceSettings={data.settings?.priceAdvice} onChange={next => { setStoreTypeFilter(next); setRenovationFilter('全部') }} onRenovationChange={next => { setRenovationFilter(next); setStoreTypeFilter('全部门店') }} onOpeningAgeChange={setOpeningAgeFilter}/>{filters.revenueZone !== ALL && <RevenueZoneRelativeScatter rows={typeFilteredStoreRows} zoneName={filters.revenueZone} onStore={setSelectedStore}/>}<StoreChannelComposition stores={typeFilteredStoreRows} store={typedFocusedStore} rows={typedFocusedStore ? typeFilteredChannelRows.filter(row => row.whCode === typedFocusedStore.whCode) : []} previousRows={typedFocusedStore ? typeFilteredPreviousChannelRows.filter(row => row.whCode === typedFocusedStore.whCode) : []} comparisonLabel={comparisonLabel} onDetail={setSelectedStore}/><StoreWarningTable rows={typeFilteredStoreRows} benchmarkRows={rows} comparisonRows={comparisonRows} channelRows={typeFilteredChannelRows} comparisonLabel={comparisonLabel} priceSettings={data.settings?.priceAdvice} storeTypeFilter={storeTypeFilter} renovationFilter={renovationFilter} onStore={store => { setFocusedStoreCode(store.whCode); setSelectedStore(store) }}/></div>
     : <div className="view-stack">{fullChannelLoading && <div className="view-data-loading"><RefreshCw/>正在按需读取完整渠道层级数据…</div>}<StoreSpecialtyPanel rows={openingAgeFilteredStoreRows} comparisonRows={comparisonRows} channelRows={channelRows} value={storeTypeFilter} renovationFilter={renovationFilter} openingAgeOptions={openingAgeOptions} openingAgeFilter={openingAgeFilter} priceSettings={data.settings?.priceAdvice} onChange={next => { setStoreTypeFilter(next); setRenovationFilter('全部') }} onRenovationChange={next => { setRenovationFilter(next); setStoreTypeFilter('全部门店') }} onOpeningAgeChange={setOpeningAgeFilter}/><ChannelDrilldownView rows={typeFilteredChannelRows} previousRows={typeFilteredPreviousChannelRows} stores={typeFilteredStoreRows} comparisonLabel={comparisonLabel} settings={data.settings?.channelAnomaly} onStore={setSelectedStore}/></div>
   return <div className="light-app">
     <LightSidebar filters={filters} hotels={data.hotels} batches={data.batches} channels={channels} onChange={setFilters} onExport={exportView} view={view} onView={next => {
-      setDiagnosticBucket(null); setDiagnosticPriorityCodes([]); setDiagnosticSortMetric(null); setHighlightStoreCode('')
-      if (next === 'area') setAreaTab('risk')
       setView(next)
       if (next === 'area') setFilters(f => ({ ...f, area: ALL, city: ALL, district: ALL, revenueZone: ALL, store: ALL }))
       if (next === 'store' || next === 'channel') setFilters(f => ({ ...f, channel: ALL }))
