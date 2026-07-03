@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight, Download } from 'lucide-react'
-import type { ComparisonRow, MetricRow, SnapshotRecord } from '../types/data'
+import type { ComparisonRow, MetricRow, SameLeadComparisonRow, SnapshotRecord } from '../types/data'
 import { aggregate, aggregateBy } from '../utils/metrics'
 import { fmtMoney, fmtPct, fmtPp } from '../utils/formatter'
 import BookingRateBar from './BookingRateBar'
@@ -10,17 +10,17 @@ import ChannelColorLegend from './ChannelColorLegend'
 
 type SortKey = 'name' | 'rows' | 'availableRooms' | 'bookingRate' | 'lastOcc' | 'adr' | 'rp' | 'lastRp' | 'highCount'
 
-export default function AreaRevenueZoneMatrix({ rows, comparisonRows, channelRows, onRevenueZone }: { rows: MetricRow[]; comparisonRows: ComparisonRow[]; channelRows: SnapshotRecord[]; onRevenueZone: (name: string) => void }) {
+export default function AreaRevenueZoneMatrix({ rows, comparisonRows, sameLeadRows, channelRows, onRevenueZone }: { rows: MetricRow[]; comparisonRows: ComparisonRow[]; sameLeadRows: SameLeadComparisonRow[]; channelRows: SnapshotRecord[]; onRevenueZone: (name: string) => void }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [sort, setSort] = useState<SortKey>('bookingRate')
   const [asc, setAsc] = useState(false)
-  const areas = useMemo(() => aggregateBy(rows, 'area', comparisonRows).sort((a, b) => {
+  const areas = useMemo(() => aggregateBy(rows, 'area', comparisonRows, sameLeadRows).sort((a, b) => {
     const av = sort === 'rows' ? a.rows.length : a[sort]
     const bv = sort === 'rows' ? b.rows.length : b[sort]
     const result = typeof av === 'string' ? av.localeCompare(String(bv)) : Number(av || 0) - Number(bv || 0)
     return asc ? result : -result
-  }), [rows, comparisonRows, sort, asc])
-  const total = aggregate(rows, comparisonRows)
+  }), [rows, comparisonRows, sameLeadRows, sort, asc])
+  const total = aggregate(rows, comparisonRows, sameLeadRows)
   const toggle = (name: string) => setExpanded(old => {
     const next = new Set(old)
     if (next.has(name)) next.delete(name); else next.add(name)
@@ -38,7 +38,7 @@ export default function AreaRevenueZoneMatrix({ rows, comparisonRows, channelRow
     const { utils, writeFile } = await import('xlsx')
     const data = areas.flatMap(area => {
       const parent = { 层级: '片区', 片区: area.name, 收益管理商圈: '', 门店数: area.rows.length, 可售房: area.availableRooms, 预订房间数: area.bookedRooms, 预订率: area.bookingRate, 预订率环比: area.bookingRateChange, 同期同提前期预订率: area.sameLeadBookingRate, 同提前期预订率差异: area.sameLeadBookingRateGap, 同期OCC: area.lastOcc, 在手ADR: area.adr, 在手ADR环比: area.adrChange, 同期同提前期在手ADR: area.sameLeadAdr, 同提前期ADR差异: area.sameLeadAdrGap, 理论RP: area.rp, 理论RP环比: area.rpChange, 同期同提前期理论RP: area.sameLeadRp, 同提前期理论RP差异: area.sameLeadRpGap, 同期RP: area.lastRp, 高风险: area.highCount }
-      const zones = aggregateBy(area.rows, 'revenueZone', comparisonRows.filter(r => r.area === area.name)).map(zone => ({ 层级: '收益管理商圈', 片区: area.name, 收益管理商圈: zone.name, 门店数: zone.rows.length, 可售房: zone.availableRooms, 预订房间数: zone.bookedRooms, 预订率: zone.bookingRate, 预订率环比: zone.bookingRateChange, 同期同提前期预订率: zone.sameLeadBookingRate, 同提前期预订率差异: zone.sameLeadBookingRateGap, 同期OCC: zone.lastOcc, 在手ADR: zone.adr, 在手ADR环比: zone.adrChange, 同期同提前期在手ADR: zone.sameLeadAdr, 同提前期ADR差异: zone.sameLeadAdrGap, 理论RP: zone.rp, 理论RP环比: zone.rpChange, 同期同提前期理论RP: zone.sameLeadRp, 同提前期理论RP差异: zone.sameLeadRpGap, 同期RP: zone.lastRp, 高风险: zone.highCount }))
+      const zones = aggregateBy(area.rows, 'revenueZone', comparisonRows.filter(r => r.area === area.name), sameLeadRows.filter(r => r.area === area.name)).map(zone => ({ 层级: '收益管理商圈', 片区: area.name, 收益管理商圈: zone.name, 门店数: zone.rows.length, 可售房: zone.availableRooms, 预订房间数: zone.bookedRooms, 预订率: zone.bookingRate, 预订率环比: zone.bookingRateChange, 同期同提前期预订率: zone.sameLeadBookingRate, 同提前期预订率差异: zone.sameLeadBookingRateGap, 同期OCC: zone.lastOcc, 在手ADR: zone.adr, 在手ADR环比: zone.adrChange, 同期同提前期在手ADR: zone.sameLeadAdr, 同提前期ADR差异: zone.sameLeadAdrGap, 理论RP: zone.rp, 理论RP环比: zone.rpChange, 同期同提前期理论RP: zone.sameLeadRp, 同提前期理论RP差异: zone.sameLeadRpGap, 同期RP: zone.lastRp, 高风险: zone.highCount }))
       return [parent, ...zones]
     })
     const wb = utils.book_new(); utils.book_append_sheet(wb, utils.json_to_sheet(data), '片区商圈矩阵'); writeFile(wb, '片区收益管理商圈矩阵.xlsx')
@@ -48,7 +48,7 @@ export default function AreaRevenueZoneMatrix({ rows, comparisonRows, channelRow
     <div className="province-table matrix-scroll"><table><thead><tr>{th('name','片区 / 收益管理商圈')}{th('rows','门店数')}{th('availableRooms','可售房')}{th('bookingRate','预订率')}{th('lastOcc','同期OCC')}<th>OCC缺口</th>{th('adr','在手ADR')}{th('rp','理论RP')}{th('lastRp','同期RP')}<th>RP缺口</th>{th('highCount','高风险')}<th>渠道占比</th></tr></thead>
       <tbody>{areas.flatMap(area => {
         const open = expanded.has(area.name)
-        const zones = aggregateBy(area.rows, 'revenueZone', comparisonRows.filter(r => r.area === area.name))
+        const zones = aggregateBy(area.rows, 'revenueZone', comparisonRows.filter(r => r.area === area.name), sameLeadRows.filter(r => r.area === area.name))
         const parentRow = <tr className="matrix-province" key={`a-${area.name}`} onClick={() => toggle(area.name)}><td><button className="matrix-toggle">{open ? <ChevronDown/> : <ChevronRight/>}<b>{area.name}</b><em>{zones.length}个收益管理商圈</em></button></td>{cells(area, area.rows.length, area.rows)}</tr>
         if (!open) return [parentRow]
         return [parentRow, ...zones.sort((a, b) => (b.bookingRate || 0) - (a.bookingRate || 0)).map(zone => <tr className="matrix-city" key={`z-${area.name}-${zone.name}`} onClick={() => onRevenueZone(zone.name)}><td><span><i/> {zone.name}</span></td>{cells(zone, zone.rows.length, zone.rows)}</tr>)]

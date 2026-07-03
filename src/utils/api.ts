@@ -290,11 +290,8 @@ async function publishVersionedData(data: StoredData, onProgress?: (progress: Sa
     qualityIssues: priorData?.qualityIssues === data.qualityIssues ? priorManifest?.arrays.qualityIssues : undefined,
   }
   const targetDates = new Set(data.batches.flatMap(batch => batch.rows.map(row => row.targetDate)).filter(Boolean))
-  const manuallyMappedComparisonDates = new Set(data.lastYear.filter(row => row.mappedDate && targetDates.has(row.mappedDate)).map(row => row.date))
   const publicLastYearRows = data.lastYear.filter(row => row.mappedDate ? targetDates.has(row.mappedDate) : targetDates.has(addDays(row.date, 364)))
-  const publicSameLeadRows = (data.sameLeadSnapshots || []).filter(row =>
-    targetDates.has(addDays(row.date, 364)) || manuallyMappedComparisonDates.has(row.date),
-  )
+  const publicSameLeadRows = (data.sameLeadSnapshots || []).filter(row => targetDates.has(addDays(row.date, 364)))
   const publicPreviousRows = data.previousFinalSnapshot ? compactPublicRows(data.previousFinalSnapshot.rows.filter(row => targetDates.has(row.targetDate))) : []
   const publicBatchRows = attachStoreInsights(
     data.batches.map(batch => ({ batch, rows: compactPublicRows(batch.rows) })),

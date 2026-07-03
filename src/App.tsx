@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { AlertTriangle, CalendarDays, CircleHelp, Clock3, Database, FileClock, Hotel, Layers3, RefreshCw } from 'lucide-react'
-import type { ComparisonRow, Filters, Hotel as HotelRecord, MetricRow, SnapshotBatch, StoredData } from './types/data'
+import type { ComparisonRow, Filters, Hotel as HotelRecord, MetricRow, SameLeadComparisonRow, SnapshotBatch, StoredData } from './types/data'
 import { EMPTY_DATA } from './utils/storage'
 import { fetchData, saveServerData, type SaveProgress } from './utils/api'
-import { aggregate, buildComparisonRows, buildMetricRows, missingBookingMetricRow } from './utils/metrics'
+import { aggregate, buildComparisonRows, buildMetricRows, buildSameLeadComparisonRows, missingBookingMetricRow } from './utils/metrics'
 import LightSidebar, { type DashboardView } from './components/LightSidebar'
 import ChinaWestMap from './components/ChinaWestMap'
 import ChannelPanel from './components/ChannelPanel'
@@ -125,6 +125,7 @@ export default function App() {
     ? unfilteredRows.filter(row => openingAgeFilter.includes(openingAgeOption(row.openDate, targetDate)))
     : unfilteredRows
   const comparison = buildComparisonRows(data.hotels, data.lastYear, targetDate)
+  const sameLeadComparison = buildSameLeadComparisonRows(data.hotels, data.sameLeadSnapshots || [], targetDate)
   const scopeComparisonRows = (source: ComparisonRow[]) => source.filter(r => {
     const h = hotelByCode.get(r.whCode)
     if (h) return hotelMatches(h, false)
@@ -133,6 +134,11 @@ export default function App() {
       filters.operationType === ALL && filters.managementType === ALL && filters.directOperation === ALL
   })
   const comparisonRows = scopeComparisonRows(comparison.rows)
+  const scopeSameLeadRows = (source: SameLeadComparisonRow[]) => source.filter(row => {
+    const hotel = hotelByCode.get(row.whCode)
+    return !!hotel && hotelMatches(hotel, false)
+  })
+  const sameLeadRows = scopeSameLeadRows(sameLeadComparison.rows)
   const diagnosticDays: DiagnosticDay[] = view === 'overview' ? selectedDayTabs.flatMap(({ dayOffset, targetDate: dayTarget }) => {
     const dayHotels = openingAgeFilter.length ? activeScopedHotels.filter(hotel => openingAgeFilter.includes(openingAgeOption(hotel.openDate || '', dayTarget))) : activeScopedHotels
     const dayHotelCodes = new Set(dayHotels.map(hotel => hotel.whCode))
@@ -140,9 +146,11 @@ export default function App() {
     const dayCodes = new Set(dayRows.map(row => row.whCode))
     const completeRows = [...dayRows, ...dayHotels.filter(hotel => !dayCodes.has(hotel.whCode)).map(hotel => missingBookingMetricRow(hotel, dayTarget, dayOffset, data.renovations || []))]
     const dayComparison = scopeComparisonRows(buildComparisonRows(data.hotels, data.lastYear, dayTarget).rows).filter(row => !openingAgeFilter.length || dayHotelCodes.has(row.whCode))
-    return [{ dayOffset, targetDate: dayTarget, rows: completeRows, comparisonRows: dayComparison }]
+    const daySameLead = scopeSameLeadRows(buildSameLeadComparisonRows(data.hotels, data.sameLeadSnapshots || [], dayTarget).rows)
+      .filter(row => !openingAgeFilter.length || dayHotelCodes.has(row.whCode))
+    return [{ dayOffset, targetDate: dayTarget, rows: completeRows, comparisonRows: dayComparison, sameLeadRows: daySameLead }]
   }) : []
-  const m = aggregate(rows, comparisonRows)
+  const m = aggregate(rows, comparisonRows, sameLeadRows)
   const previousTargetBatch = previousMetricBatch
     ? { ...previousMetricBatch, rows: previousMetricBatch.rows.filter(row => row.targetDate === targetDate) }
     : undefined
@@ -197,8 +205,9 @@ export default function App() {
   const storeScopedView = view === 'store'
   const kpiRows = storeScopedView ? typeFilteredStoreRows : rows
   const kpiComparisonRows = storeScopedView ? comparisonRows.filter(row => typeFilteredCodes.has(row.whCode)) : comparisonRows
+  const kpiSameLeadRows = storeScopedView ? sameLeadRows.filter(row => typeFilteredCodes.has(row.whCode)) : sameLeadRows
   const kpiPreviousRows = storeScopedView ? prevRows.filter(row => typeFilteredCodes.has(row.whCode)) : prevRows
-  const kpiCurrent = storeScopedView ? aggregate(kpiRows, kpiComparisonRows) : m
+  const kpiCurrent = storeScopedView ? aggregate(kpiRows, kpiComparisonRows, kpiSameLeadRows) : m
   const kpiPrevious = storeScopedView ? aggregate(kpiPreviousRows) : pm
   const kpiFullCount = storeScopedView ? kpiRows.filter(row => row.bookingRate != null && row.bookingRate >= 1).length : fullCount
   const kpiZeroCount = storeScopedView ? kpiRows.filter(row => row.bookedRooms === 0 && (countMissingAsZero || !row.tags.includes('缺失预订数据'))).length : zeroCount
@@ -213,9 +222,9 @@ export default function App() {
   const channel = <ChannelPanel rows={channelRows} previousRows={previousChannelRows} comparisonLabel={comparisonLabel} onChannel={setChannel}/>
   const map = <ChinaWestMap rows={rows} comparisonRows={comparisonRows} countMissingAsZero={countMissingAsZero} selected={filters.province} onSelect={province => setFilters(f => ({ ...f, province, area: ALL, city: ALL, district: ALL, businessZone: ALL, revenueZone: ALL, store: ALL }))} onCity={city => setFilters(f => ({ ...f, city, district: ALL, businessZone: ALL, revenueZone: ALL, store: ALL }))} onRevenueZone={revenueZone => drillZone(revenueZone)} day={filters.dayOffset} batch={selected?.batchTime || '--'} comparisonLabel={comparisonLabel}/>
   const areaBreadcrumb = filters.area !== ALL && <div className="diagnostic-breadcrumb"><button onClick={() => { setFilters(current => ({ ...current, province: ALL, area: ALL, city: ALL, district: ALL, revenueZone: ALL, store: ALL })); setView('overview') }}>华西大区</button><span>›</span><button onClick={() => { setFilters(current => ({ ...current, area: ALL, city: ALL, district: ALL, revenueZone: ALL, store: ALL })); setView('province') }}>{filters.province}</button><span>›</span><b>{filters.area}</b>{filters.revenueZone !== ALL && <><span>›</span><strong>{filters.revenueZone}</strong></>}</div>
-  const viewContent = view === 'overview' ? <><div className="light-middle">{map}{channel}</div><RiskHeatmap days={diagnosticDays} level="province" title="省区 D0-D6 变化监控热力图" batch={selected?.batchTime || '--'} comparisonLabel={comparisonLabel} onSelect={(province, dayOffset) => drillProvince(province, dayOffset)}/><ProvinceOverview rows={rows} comparisonRows={comparisonRows} channelRows={channelRows} countMissingAsZero={countMissingAsZero} onSelect={province => drillProvince(province)}/></>
-    : view === 'province' ? <div className="view-stack">{map}<ProvinceCityMatrix rows={rows} comparisonRows={comparisonRows} channelRows={channelRows} onCity={city => setFilters(f => ({ ...f, city, district: ALL, revenueZone: ALL, store: ALL }))}/></div>
-    : view === 'area' ? <div className="view-stack">{areaBreadcrumb}<AreaRevenueZoneMatrix rows={rows} comparisonRows={comparisonRows} channelRows={channelRows} onRevenueZone={revenueZone => drillZone(revenueZone)}/></div>
+  const viewContent = view === 'overview' ? <><div className="light-middle">{map}{channel}</div><RiskHeatmap days={diagnosticDays} level="province" title="省区 D0-D6 变化监控热力图" batch={selected?.batchTime || '--'} comparisonLabel={comparisonLabel} onSelect={(province, dayOffset) => drillProvince(province, dayOffset)}/><ProvinceOverview rows={rows} comparisonRows={comparisonRows} sameLeadRows={sameLeadRows} channelRows={channelRows} countMissingAsZero={countMissingAsZero} onSelect={province => drillProvince(province)}/></>
+    : view === 'province' ? <div className="view-stack">{map}<ProvinceCityMatrix rows={rows} comparisonRows={comparisonRows} sameLeadRows={sameLeadRows} channelRows={channelRows} onCity={city => setFilters(f => ({ ...f, city, district: ALL, revenueZone: ALL, store: ALL }))}/></div>
+    : view === 'area' ? <div className="view-stack">{areaBreadcrumb}<AreaRevenueZoneMatrix rows={rows} comparisonRows={comparisonRows} sameLeadRows={sameLeadRows} channelRows={channelRows} onRevenueZone={revenueZone => drillZone(revenueZone)}/></div>
     : view === 'store' ? <div className="view-stack">{areaBreadcrumb}<StoreSpecialtyPanel rows={openingAgeFilteredStoreRows} comparisonRows={comparisonRows} channelRows={channelRows} value={storeTypeFilter} renovationFilter={renovationFilter} openingAgeOptions={openingAgeOptions} openingAgeFilter={openingAgeFilter} priceSettings={data.settings?.priceAdvice} onChange={next => { setStoreTypeFilter(next); setRenovationFilter('全部') }} onRenovationChange={next => { setRenovationFilter(next); setStoreTypeFilter('全部门店') }} onOpeningAgeChange={setOpeningAgeFilter}/><StoreChannelComposition stores={typeFilteredStoreRows} store={typedFocusedStore} rows={typedFocusedStore ? typeFilteredChannelRows.filter(row => row.whCode === typedFocusedStore.whCode) : []} previousRows={typedFocusedStore ? typeFilteredPreviousChannelRows.filter(row => row.whCode === typedFocusedStore.whCode) : []} comparisonLabel={comparisonLabel} onDetail={setSelectedStore}/><StoreWarningTable rows={typeFilteredStoreRows} benchmarkRows={rows} comparisonRows={comparisonRows} channelRows={typeFilteredChannelRows} comparisonLabel={comparisonLabel} priceSettings={data.settings?.priceAdvice} storeTypeFilter={storeTypeFilter} renovationFilter={renovationFilter} onStore={store => { setFocusedStoreCode(store.whCode); setSelectedStore(store) }}/></div>
     : <div className="view-stack"><div className="channel-summary-notice">渠道视图使用上传时生成的轻量汇总数据，不下载渠道原始明细。</div><ChannelDrilldownView rows={typeFilteredChannelRows} previousRows={typeFilteredPreviousChannelRows} comparisonLabel={comparisonLabel}/></div>
   return <div className="light-app">
@@ -237,6 +246,8 @@ export default function App() {
       {showMethodology && <section className="methodology-panel">
         <div><small>当前目标日期</small><b>{targetDate || '--'}</b></div>
         <div><small>实际同期日期</small><b>{comparison.comparisonDate || '--'}</b><em>{comparison.usedManualMapping ? '日期映射表' : '目标日期 -364天'}</em></div>
+        <div className={sameLeadComparison.missing ? 'methodology-warning' : ''}><small>同提前期日期</small><b>{sameLeadComparison.comparisonDate || '--'}</b><em>{sameLeadRows.length ? `快照表匹配 ${sameLeadRows.length} 家` : '无同期同提前期数据'}</em></div>
+        <div><small>同提前期门店状态</small><b>在营业 / 已解约 / 整改中</b><em>其他状态已剔除</em></div>
         <div><small>当前期门店口径</small><b>当前在营门店</b><em>{activeScopedHotels.length} 家</em></div>
         <div><small>同期门店口径</small><b>去年同期全量门店</b><em>{comparisonRows.length} 家</em></div>
         <div><small>当前跑批</small><b>{selected?.batchTime || '--'}</b><em>{comparisonLabel}</em></div>

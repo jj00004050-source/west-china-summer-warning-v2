@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
-import type { ComparisonRow, MetricRow, SnapshotRecord } from '../types/data'
+import type { ComparisonRow, MetricRow, SameLeadComparisonRow, SnapshotRecord } from '../types/data'
 import { aggregate } from '../utils/metrics'
 import { fmtMoney, fmtPct, fmtPp, riskText } from '../utils/formatter'
 import {
@@ -17,6 +17,7 @@ export type DiagnosticDay = {
   targetDate: string
   rows: MetricRow[]
   comparisonRows: ComparisonRow[]
+  sameLeadRows: SameLeadComparisonRow[]
 }
 
 const metricMeta: Record<DistributionMetric, { label: string; unit: string }> = {
@@ -159,7 +160,8 @@ export function RiskHeatmap({ days, level, title, batch, comparisonLabel, onSele
   const data = days.flatMap((day, x) => names.map((name, y) => {
     const rows = day.rows.filter(row => String(row[level] || '未归属') === name)
     const comparison = day.comparisonRows.filter(row => String(row[level] || '未归属') === name)
-    const m = aggregate(rows, comparison)
+    const sameLead = day.sameLeadRows.filter(row => String(row[level] || '未归属') === name)
+    const m = aggregate(rows, comparison, sameLead)
     const hasPrevious = rows.some(row => row.previousAvailableRooms != null)
     const bookingChange = hasPrevious ? m.bookingRateChange : null
     const adrChange = hasPrevious ? m.adrChange : null

@@ -1,4 +1,4 @@
-import type { ComparisonRow, Hotel, LastYearRecord, MetricRow, RenovationRecord, SameLeadSnapshotRecord, SnapshotBatch, SnapshotRecord } from '../types/data'
+import type { ComparisonRow, Hotel, LastYearRecord, MetricRow, RenovationRecord, SameLeadComparisonRow, SameLeadSnapshotRecord, SnapshotBatch, SnapshotRecord } from '../types/data'
 import { evaluateRisk } from './riskRules'
 
 const safe = (a: number, b: number) => b ? a / b : null
@@ -49,7 +49,7 @@ function lastYearMetric(rows: LastYearRecord[]) {
 
 function sameLeadMetric(rows: SameLeadSnapshotRecord[]) {
   if (!rows.length) return { available: null, booked: null, priced: null, revenue: null, bookingRate: null, adr: null, rp: null }
-  const available = Math.max(0, ...rows.map(row => Number(row.availableRooms) || 0))
+  const available = sum(rows.map(row => Number(row.availableRooms) || 0))
   const booked = sum(rows.map(row => row.bookedRooms || 0))
   const priced = sum(rows.map(row => row.pricedRooms || 0))
   const revenue = sum(rows.map(row => row.bookingRevenue || 0))
@@ -68,6 +68,42 @@ const dateMinus364 = (targetDate: string) => {
   const [year, month, day] = targetDate.split('-').map(Number)
   if (!year || !month || !day) return ''
   return new Date(Date.UTC(year, month - 1, day) - 364 * 86400000).toISOString().slice(0, 10)
+}
+
+const SAME_LEAD_STATUSES = new Set(['在营业', '已解约', '整改中'])
+export const isSameLeadIncludedStatus = (status: string) => SAME_LEAD_STATUSES.has(String(status || '').trim())
+
+export function buildSameLeadComparisonRows(
+  hotels: Hotel[],
+  snapshots: SameLeadSnapshotRecord[],
+  targetDate: string,
+) {
+  const comparisonDate = dateMinus364(targetDate)
+  const hotelByCode = new Map(hotels.map(hotel => [hotel.whCode, hotel]))
+  const source = snapshots.filter(record => record.date === comparisonDate)
+  const rows: SameLeadComparisonRow[] = Object.values(group(source, record => record.whCode)).flatMap(records => {
+    const first = records[0]
+    const hotel = hotelByCode.get(first.whCode)
+    if (!hotel || !isSameLeadIncludedStatus(hotel.status)) return []
+    const metric = sameLeadMetric(records)
+    return [{
+      whCode: first.whCode,
+      name: hotel.name,
+      province: hotel.province,
+      area: hotel.area,
+      city: hotel.city,
+      district: hotel.district || '',
+      businessZone: hotel.businessZone,
+      revenueZone: hotel.revenueZone || '',
+      brand: hotel.brand,
+      positioning: hotel.positioning,
+      availableRooms: metric.available || 0,
+      bookedRooms: metric.booked || 0,
+      pricedRooms: metric.priced || 0,
+      bookingRevenue: metric.revenue || 0,
+    }]
+  })
+  return { rows, comparisonDate, missing: rows.length === 0 }
 }
 
 export function buildComparisonRows(hotels: Hotel[], lastYear: LastYearRecord[], targetDate: string) {
@@ -179,7 +215,6 @@ export function buildMetricRows(
   if (lastYearCacheSource !== lastYear) { lastYearCacheSource = lastYear; lastYearCache = group(lastYear, r => r.whCode) }
   const renovationsByHotel = group(renovations, record => record.whCode)
   const sameLeadByKey = group(sameLeadSnapshots, record => `${record.whCode}|${record.date}`)
-  const mappedDateByTarget = new Map(lastYear.filter(record => record.mappedDate).map(record => [record.mappedDate!, record.date]))
   return Object.values(currentByKey).map(rows => {
     const first = rows[0]
     const hotel = hotelCache.get(first.whCode)
@@ -187,10 +222,12 @@ export function buildMetricRows(
     const prevRows = prevByKey[`${first.whCode}|${first.targetDate}`]
     const prev = prevRows?.length ? hotelSnapshot(prevRows) : null
     const lastDateString = dateMinus364(first.targetDate)
-    const mappedComparisonDate = mappedDateByTarget.get(first.targetDate) || lastDateString
     const lyRows = (lastYearCache[first.whCode] || []).filter(r => r.mappedDate === first.targetDate || (!r.mappedDate && r.date === lastDateString))
     const ly = lastYearMetric(lyRows)
-    const sameLead = sameLeadMetric(sameLeadByKey[`${first.whCode}|${mappedComparisonDate}`] || [])
+    const sameLeadRecords = hotel && isSameLeadIncludedStatus(hotel.status)
+      ? sameLeadByKey[`${first.whCode}|${lastDateString}`] || []
+      : []
+    const sameLead = sameLeadMetric(sameLeadRecords)
     const renovation = matchedRenovation(renovationsByHotel[first.whCode] || [])
     const recovery = cur.rp != null && ly.rp ? cur.rp / ly.rp : null
     const rpGap = cur.rp != null && ly.rp != null ? cur.rp - ly.rp : null
@@ -231,7 +268,7 @@ export function buildMetricRows(
   })
 }
 
-export function aggregate(rows: MetricRow[], comparisonRows?: ComparisonRow[]) {
+export function aggregate(rows: MetricRow[], comparisonRows?: ComparisonRow[], sameLeadRows?: SameLeadComparisonRow[]) {
   const availableRooms = sum(rows.map(r => r.availableRooms))
   const bookedRooms = sum(rows.map(r => r.bookedRooms))
   const pricedRooms = sum(rows.map(r => r.pricedRooms))
@@ -259,11 +296,21 @@ export function aggregate(rows: MetricRow[], comparisonRows?: ComparisonRow[]) {
   const bookingRateChange = bookingRate != null && previousBookingRate != null ? bookingRate - previousBookingRate : null
   const adrChange = adr != null && previousAdr != null ? adr - previousAdr : null
   const rpChange = rp != null && previousRp != null ? rp - previousRp : null
-  const sameLeadMatched = rows.some(row => row.sameLeadAvailableRooms != null || row.sameLeadBookedRooms != null || row.sameLeadBookingRevenue != null)
-  const sameLeadAvailableRooms = sum(rows.map(row => row.sameLeadAvailableRooms || 0))
-  const sameLeadBookedRooms = sum(rows.map(row => row.sameLeadBookedRooms || 0))
-  const sameLeadPricedRooms = sum(rows.map(row => row.sameLeadPricedRooms || 0))
-  const sameLeadBookingRevenue = sum(rows.map(row => row.sameLeadBookingRevenue || 0))
+  const sameLeadMatched = sameLeadRows
+    ? sameLeadRows.length > 0
+    : rows.some(row => row.sameLeadAvailableRooms != null || row.sameLeadBookedRooms != null || row.sameLeadBookingRevenue != null)
+  const sameLeadAvailableRooms = sameLeadRows
+    ? sum(sameLeadRows.map(row => row.availableRooms))
+    : sum(rows.map(row => row.sameLeadAvailableRooms || 0))
+  const sameLeadBookedRooms = sameLeadRows
+    ? sum(sameLeadRows.map(row => row.bookedRooms))
+    : sum(rows.map(row => row.sameLeadBookedRooms || 0))
+  const sameLeadPricedRooms = sameLeadRows
+    ? sum(sameLeadRows.map(row => row.pricedRooms))
+    : sum(rows.map(row => row.sameLeadPricedRooms || 0))
+  const sameLeadBookingRevenue = sameLeadRows
+    ? sum(sameLeadRows.map(row => row.bookingRevenue))
+    : sum(rows.map(row => row.sameLeadBookingRevenue || 0))
   const sameLeadBookingRate = sameLeadMatched ? safe(sameLeadBookedRooms, sameLeadAvailableRooms) : null
   const sameLeadAdr = sameLeadMatched ? safe(sameLeadBookingRevenue, sameLeadPricedRooms) : null
   const sameLeadRp = sameLeadMatched ? safe(sameLeadBookingRevenue, sameLeadAvailableRooms) : null
@@ -286,11 +333,16 @@ export function aggregate(rows: MetricRow[], comparisonRows?: ComparisonRow[]) {
   }
 }
 
-export function aggregateBy(rows: MetricRow[], key: keyof MetricRow, comparisonRows?: ComparisonRow[]) {
+export function aggregateBy(rows: MetricRow[], key: keyof MetricRow, comparisonRows?: ComparisonRow[], sameLeadRows?: SameLeadComparisonRow[]) {
   const comparisonGroups = comparisonRows ? group(comparisonRows, r => String(r[key as keyof ComparisonRow] || '未归属')) : {}
+  const sameLeadGroups = sameLeadRows ? group(sameLeadRows, r => String(r[key as keyof SameLeadComparisonRow] || '未归属')) : {}
   return Object.entries(group(rows, r => String(r[key] || '未归属'))).map(([name, items]) => ({
     name,
     rows: items,
-    ...aggregate(items, comparisonRows ? comparisonGroups[name] || [] : undefined),
+    ...aggregate(
+      items,
+      comparisonRows ? comparisonGroups[name] || [] : undefined,
+      sameLeadRows ? sameLeadGroups[name] || [] : undefined,
+    ),
   }))
 }

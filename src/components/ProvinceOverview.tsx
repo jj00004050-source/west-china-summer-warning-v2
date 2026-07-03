@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Download } from 'lucide-react'
-import type { ComparisonRow, MetricRow, SnapshotRecord } from '../types/data'
+import type { ComparisonRow, MetricRow, SameLeadComparisonRow, SnapshotRecord } from '../types/data'
 import { aggregateBy, aggregate } from '../utils/metrics'
 import { fmtMoney, fmtPct, fmtPp } from '../utils/formatter'
 import BookingRateBar from './BookingRateBar'
@@ -10,16 +10,16 @@ import MetricTrendLines from './MetricTrendLines'
 
 type SortKey = 'name' | 'rows' | 'bookingRate' | 'lastOcc' | 'adr' | 'rp' | 'lastRp' | 'highCount'
 
-export default function ProvinceOverview({ rows, comparisonRows, channelRows, countMissingAsZero, onSelect }: { rows: MetricRow[]; comparisonRows: ComparisonRow[]; channelRows: SnapshotRecord[]; countMissingAsZero: boolean; onSelect: (v: string) => void }) {
+export default function ProvinceOverview({ rows, comparisonRows, sameLeadRows, channelRows, countMissingAsZero, onSelect }: { rows: MetricRow[]; comparisonRows: ComparisonRow[]; sameLeadRows: SameLeadComparisonRow[]; channelRows: SnapshotRecord[]; countMissingAsZero: boolean; onSelect: (v: string) => void }) {
   const [sort, setSort] = useState<SortKey>('bookingRate')
   const [asc, setAsc] = useState(false)
-  const items = useMemo(() => aggregateBy(rows, 'province', comparisonRows).sort((a, b) => {
+  const items = useMemo(() => aggregateBy(rows, 'province', comparisonRows, sameLeadRows).sort((a, b) => {
     const av = sort === 'rows' ? a.rows.length : sort === 'highCount' ? a.rows.filter(r => (r.bookingRate || 0) >= 1).length : a[sort]
     const bv = sort === 'rows' ? b.rows.length : sort === 'highCount' ? b.rows.filter(r => (r.bookingRate || 0) >= 1).length : b[sort]
     const result = typeof av === 'string' ? av.localeCompare(String(bv)) : Number(av || 0) - Number(bv || 0)
     return asc ? result : -result
-  }), [rows, comparisonRows, sort, asc])
-  const total = aggregate(rows, comparisonRows)
+  }), [rows, comparisonRows, sameLeadRows, sort, asc])
+  const total = aggregate(rows, comparisonRows, sameLeadRows)
   const doSort = (key: SortKey) => { if (key === sort) setAsc(!asc); else { setSort(key); setAsc(false) } }
   const th = (key: SortKey, label: string) => <th onClick={() => doSort(key)}>{label}{sort === key ? (asc ? ' ↑' : ' ↓') : ''}</th>
   const zeroCount = (itemRows: MetricRow[]) => itemRows.filter(r => r.bookedRooms === 0 && (countMissingAsZero || !r.tags.includes('缺失预订数据'))).length

@@ -15,6 +15,7 @@ const cnDate = value => {
   return month && day ? `${Number(month)}月${Number(day)}日` : '--'
 }
 const isOperating = status => ['在营', '在营业', '营业'].includes(String(status || '').trim())
+const isSameLeadIncluded = status => ['在营业', '已解约', '整改中'].includes(String(status || '').trim())
 const comparisonDate = targetDate => new Date(new Date(`${targetDate}T00:00:00Z`).getTime() - 364 * DAY).toISOString().slice(0, 10)
 const scopeField = { province: 'province', area: 'area', city: 'city', revenueZone: 'revenueZone' }
 const scopeLabels = { all: '华西区域整体', province: '省区', area: '片区', city: '城市', revenueZone: '收益管理商圈' }
@@ -53,6 +54,22 @@ function snapshotMetric(records = []) {
   }
 }
 
+function sameLeadSnapshotMetric(records = []) {
+  const availableRooms = sum(records.map(r => r.availableRooms))
+  const bookedRooms = sum(records.map(r => r.bookedRooms))
+  const pricedRooms = sum(records.map(r => r.pricedRooms))
+  const revenue = sum(records.map(r => r.bookingRevenue))
+  return {
+    availableRooms,
+    bookedRooms,
+    pricedRooms,
+    revenue,
+    bookingRate: ratio(bookedRooms, availableRooms),
+    adr: ratio(revenue, pricedRooms),
+    rp: ratio(revenue, availableRooms),
+  }
+}
+
 function lastYearMetric(records = []) {
   if (!records.length) return { availableRooms: 0, soldRooms: 0, revenue: 0 }
   const availableRooms = Math.max(0, ...records.map(r => Number(r.availableRooms) || 0))
@@ -66,7 +83,7 @@ function lastYearMetric(records = []) {
   return { availableRooms, soldRooms, revenue }
 }
 
-function aggregate(currentRows, comparisonRows = []) {
+function aggregate(currentRows, comparisonRows = [], sameLeadComparisonRows) {
   const availableRooms = sum(currentRows.map(r => r.availableRooms))
   const bookedRooms = sum(currentRows.map(r => r.bookedRooms))
   const pricedRooms = sum(currentRows.map(r => r.pricedRooms))
@@ -80,11 +97,13 @@ function aggregate(currentRows, comparisonRows = []) {
   const lastOcc = comparisonRows.length ? ratio(lastSold, lastAvailable) : null
   const lastAdr = comparisonRows.length ? ratio(lastRevenue, lastSold) : null
   const lastRp = comparisonRows.length ? ratio(lastRevenue, lastAvailable) : null
-  const sameLeadRows = currentRows.filter(row => row.sameLeadMatched)
-  const sameLeadAvailableRooms = sum(sameLeadRows.map(row => row.sameLeadAvailableRooms))
-  const sameLeadBookedRooms = sum(sameLeadRows.map(row => row.sameLeadBookedRooms))
-  const sameLeadPricedRooms = sum(sameLeadRows.map(row => row.sameLeadPricedRooms))
-  const sameLeadRevenue = sum(sameLeadRows.map(row => row.sameLeadRevenue))
+  const sameLeadRows = Array.isArray(sameLeadComparisonRows)
+    ? sameLeadComparisonRows
+    : currentRows.filter(row => row.sameLeadMatched)
+  const sameLeadAvailableRooms = sum(sameLeadRows.map(row => Array.isArray(sameLeadComparisonRows) ? row.availableRooms : row.sameLeadAvailableRooms))
+  const sameLeadBookedRooms = sum(sameLeadRows.map(row => Array.isArray(sameLeadComparisonRows) ? row.bookedRooms : row.sameLeadBookedRooms))
+  const sameLeadPricedRooms = sum(sameLeadRows.map(row => Array.isArray(sameLeadComparisonRows) ? row.pricedRooms : row.sameLeadPricedRooms))
+  const sameLeadRevenue = sum(sameLeadRows.map(row => Array.isArray(sameLeadComparisonRows) ? row.revenue : row.sameLeadRevenue))
   const sameLeadBookingRate = sameLeadRows.length ? ratio(sameLeadBookedRooms, sameLeadAvailableRooms) : null
   const sameLeadAdr = sameLeadRows.length ? ratio(sameLeadRevenue, sameLeadPricedRooms) : null
   const sameLeadRp = sameLeadRows.length ? ratio(sameLeadRevenue, sameLeadAvailableRooms) : null
@@ -214,6 +233,7 @@ export function generateBroadcastPackage(data, request = {}) {
   const previousGroups = group(previousSource, row => row.whCode)
   const mappedLastYear = data.lastYear.filter(row => row.mappedDate === targetDate)
   const lastDate = mappedLastYear[0]?.date || comparisonDate(targetDate)
+  const sameLeadDate = comparisonDate(targetDate)
   const lastSource = (mappedLastYear.length ? mappedLastYear : data.lastYear.filter(row => !row.mappedDate && row.date === lastDate))
     .filter(row => {
       const hotel = hotelByCode.get(row.whCode)
@@ -224,8 +244,16 @@ export function generateBroadcastPackage(data, request = {}) {
     return { whCode, ...hotel, ...lastYearMetric(records) }
   })
   const comparisonByCode = new Map(comparisonRows.map(row => [row.whCode, row]))
-  const sameLeadSource = (data.sameLeadSnapshots || []).filter(row => row.date === lastDate)
+  const sameLeadSource = (data.sameLeadSnapshots || []).filter(row => {
+    if (row.date !== sameLeadDate) return false
+    const hotel = hotelByCode.get(row.whCode)
+    return !!hotel && isSameLeadIncluded(hotel.status) && hotelInScope(hotel, scope)
+  })
   const sameLeadByCode = group(sameLeadSource, row => row.whCode)
+  const sameLeadComparisonRows = Object.entries(sameLeadByCode).map(([whCode, records]) => {
+    const hotel = hotelByCode.get(whCode)
+    return { ...hotel, ...sameLeadSnapshotMetric(records) }
+  })
   const countMissing = data.settings?.countMissingBookingAsZero !== false
   const renovationByCode = new Map((data.renovations || []).map(record => [record.whCode, record]))
 
@@ -238,8 +266,8 @@ export function generateBroadcastPackage(data, request = {}) {
     const lastOcc = last ? ratio(last.soldRooms, last.availableRooms) : null
     const lastAdr = last ? ratio(last.revenue, last.soldRooms) : null
     const lastRp = last ? ratio(last.revenue, last.availableRooms) : null
-    const sameLeadRecords = sameLeadByCode[hotel.whCode] || []
-    const sameLead = snapshotMetric(sameLeadRecords)
+    const sameLeadRecords = isSameLeadIncluded(hotel.status) ? sameLeadByCode[hotel.whCode] || [] : []
+    const sameLead = sameLeadSnapshotMetric(sameLeadRecords)
     return {
       ...hotel,
       ...current,
@@ -278,15 +306,16 @@ export function generateBroadcastPackage(data, request = {}) {
     }
   })
   const previousStoreRows = activeHotels.map(hotel => ({ ...hotel, ...snapshotMetric(previousGroups[hotel.whCode] || []) }))
-  const overall = aggregate(storeRows, comparisonRows)
+  const overall = aggregate(storeRows, comparisonRows, sameLeadComparisonRows)
   const previousOverall = aggregate(previousStoreRows)
   const overallChange = overall.bookingRate != null && previousOverall.bookingRate != null ? overall.bookingRate - previousOverall.bookingRate : null
   const missingStoreCount = storeRows.filter(row => row.missing).length
 
   const groupedMetrics = key => Object.entries(group(storeRows, row => row[key] || '未归属')).map(([name, rows]) => {
     const compare = comparisonRows.filter(row => String(row[key] || '未归属') === name)
+    const sameLead = sameLeadComparisonRows.filter(row => String(row[key] || '未归属') === name)
     const prior = previousStoreRows.filter(row => String(row[key] || '未归属') === name)
-    const metric = aggregate(rows, compare)
+    const metric = aggregate(rows, compare, sameLead)
     const priorMetric = aggregate(prior)
     return {
       name,
@@ -507,7 +536,12 @@ export function generateBroadcastPackage(data, request = {}) {
     zeroStores.length >= Math.max(5, Math.ceil(storeRows.length * .1)) ? '0预定门店需优先排查渠道展示、库存状态、价格竞争力和是否异常关房。' : '',
     highBookingStores.length >= Math.max(5, Math.ceil(storeRows.length * .05)) ? '高预订门店需核实真实预订和控房情况，优先做好库存兑现和满房质量。' : '',
   ].filter(Boolean).join('')
-  const sameLeadText = overall.sameLeadBookingRateGap == null ? '' : `，较同期同提前期开盘预订率${overall.sameLeadBookingRateGap >= 0 ? '提升' : '下降'}${(Math.abs(overall.sameLeadBookingRateGap) * 100).toFixed(2)}pp`
+  const sameLeadParts = [
+    overall.sameLeadBookingRateGap == null ? '' : `预订率${overall.sameLeadBookingRateGap >= 0 ? '提升' : '下降'}${(Math.abs(overall.sameLeadBookingRateGap) * 100).toFixed(2)}pp`,
+    overall.sameLeadAdrGap == null ? '' : `ADR${overall.sameLeadAdrGap >= 0 ? '高' : '低'}${money(Math.abs(overall.sameLeadAdrGap))}元`,
+    overall.sameLeadRpGap == null ? '' : `理论RP${overall.sameLeadRpGap >= 0 ? '高' : '低'}${money(Math.abs(overall.sameLeadRpGap))}`,
+  ].filter(Boolean)
+  const sameLeadText = sameLeadParts.length ? `，较同期同提前期${sameLeadParts.join('、')}` : ''
   const overallText = `${scheduleTime ? `${scheduleTime}预警，` : ''}本次重点播报今日入住日${cnDate(targetDate)}${phase}表现，同时覆盖未来7天预警。\n${scopeLabel}今日预订率${pct(overall.bookingRate)}，${ringText(overallChange)}${sameLeadText}；在手ADR${money(overall.adr)}元，理论RP${money(overall.rp)}。\n当前预订率为0门店${zeroStores.length}家，预订率大于80%门店${highBookingStores.length}家。\n${overallJudgments}`
 
   const provinceText = `省区表现方面，${bestProvince ? `${bestProvince.name}预订率最高，达到${pct(bestProvince.bookingRate)}` : '暂无可比省区'}；低位省区为${itemText(lowProvinces, item => `${item.name}${pct(item.bookingRate)}`)}。\n高预订省区重点关注高预订门店价格兑现和满房质量；低预订省区重点关注低预订、渠道展示和商圈承接不足门店。`
@@ -626,6 +660,7 @@ export function generateBroadcastPackage(data, request = {}) {
     meta: {
       targetDate,
       comparisonDate: lastDate,
+      sameLeadComparisonDate: sameLeadDate,
       batchId: selected.id,
       batchTime: selected.batchTime,
       previousLabel: previous.label,

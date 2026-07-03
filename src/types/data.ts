@@ -122,6 +122,23 @@ export interface SameLeadSnapshotRecord {
   availableRooms: number
 }
 
+export interface SameLeadComparisonRow {
+  whCode: string
+  name: string
+  province: string
+  area: string
+  city: string
+  district: string
+  businessZone: string
+  revenueZone: string
+  brand: string
+  positioning: string
+  availableRooms: number
+  bookedRooms: number
+  pricedRooms: number
+  bookingRevenue: number
+}
+
 export interface SnapshotBatch {
   id: string
   uploadTime: string
@@ -373,6 +390,7 @@ export interface BroadcastPackage {
   meta: {
     targetDate: string
     comparisonDate: string
+    sameLeadComparisonDate?: string
     batchId: string
     batchTime: string
     previousLabel: string
