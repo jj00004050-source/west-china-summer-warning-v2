@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react'
-import { utils, writeFile } from 'xlsx'
 import { Download } from 'lucide-react'
 import type { ComparisonRow, MetricRow, SnapshotRecord } from '../types/data'
 import { aggregateBy, aggregate } from '../utils/metrics'
@@ -27,7 +26,8 @@ export default function ProvinceOverview({ rows, comparisonRows, channelRows, co
   const line = (name: string, m: ReturnType<typeof aggregate>, itemRows: MetricRow[], totalRow = false) => <tr key={name} className={totalRow ? 'total' : ''} onClick={() => !totalRow && onSelect(name)}>
     <td><b>{name}</b></td><td>{itemRows.length}</td><td><BookingRateBar value={m.bookingRate}/><MetricTrendLines kind="rate" change={m.bookingRateChange} sameLeadGap={m.sameLeadBookingRateGap}/></td><td>{fmtPct(m.lastOcc)}</td><td className={(m.bookingRate || 0) - (m.lastOcc || 0) < 0 ? 'negative' : 'positive'}>{fmtPp(m.bookingRate != null && m.lastOcc != null ? m.bookingRate - m.lastOcc : null)}</td><td>{fmtMoney(m.adr)}<MetricTrendLines kind="money" change={m.adrChange} sameLeadGap={m.sameLeadAdrGap}/></td><td>{fmtMoney(m.rp)}<MetricTrendLines kind="money" change={m.rpChange} sameLeadGap={m.sameLeadRpGap}/></td><td>{fmtMoney(m.lastRp)}</td><td className={(m.rp || 0) - (m.lastRp || 0) < 0 ? 'negative' : 'positive'}>{fmtMoney(m.rp != null && m.lastRp != null ? m.rp - m.lastRp : null)}</td><td>{itemRows.filter(r => (r.bookingRate || 0) >= 1).length}</td><td>{zeroCount(itemRows)}</td><td><MiniChannelDonut rows={channelRows} hotelIds={new Set(itemRows.map(r => r.whCode))}/></td>
   </tr>
-  const exportRows = () => {
+  const exportRows = async () => {
+    const { utils, writeFile } = await import('xlsx')
     const ws = utils.json_to_sheet(items.map(x => ({ 酒店省区: x.name, 当前在营门店数: x.rows.length, 预订率: x.bookingRate, 预订率环比: x.bookingRateChange, 同期同提前期预订率: x.sameLeadBookingRate, 同提前期预订率差异: x.sameLeadBookingRateGap, 同期OCC: x.lastOcc, 在手ADR: x.adr, 在手ADR环比: x.adrChange, 同期同提前期在手ADR: x.sameLeadAdr, 同提前期ADR差异: x.sameLeadAdrGap, 理论RP: x.rp, 理论RP环比: x.rpChange, 同期同提前期理论RP: x.sameLeadRp, 同提前期理论RP差异: x.sameLeadRpGap, 同期RP: x.lastRp, 满房数: x.rows.filter(r => (r.bookingRate || 0) >= 1).length, 零预定数: zeroCount(x.rows) })))
     const wb = utils.book_new(); utils.book_append_sheet(wb, ws, '省区概览'); writeFile(wb, '省区数据概览.xlsx')
   }

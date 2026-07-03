@@ -1,5 +1,4 @@
 import { useRef, useState } from 'react'
-import { utils, writeFile } from 'xlsx'
 import { CheckCircle2, Database, FileSpreadsheet, History, Save, SlidersHorizontal, Trash2, Upload, XCircle } from 'lucide-react'
 import type { DataKind, PriceAdviceSettings, QualityIssue, StoredData } from '../types/data'
 import { autoMap } from '../utils/fieldMapping'
@@ -66,7 +65,10 @@ export default function UploadCenter({ data, onData }: { data: StoredData; onDat
       const checked = new Set<string>()
       ;(normalized as StoredData['batches'][number]['rows']).forEach((r, i) => {
         const key = `${r.whCode}|${r.targetDate}`; if (checked.has(key)) return; checked.add(key)
-        const wow = new Date(new Date(`${r.targetDate}T00:00:00`).getTime() - 364 * 86400000).toISOString().slice(0, 10)
+        const [year, month, day] = r.targetDate.split('-').map(Number)
+        const wow = year && month && day
+          ? new Date(Date.UTC(year, month - 1, day) - 364 * 86400000).toISOString().slice(0, 10)
+          : ''
         if (!mapped.has(key) && !dated.has(`${r.whCode}|${wow}`)) found.push({ level: 'warning', row: i + 2, field: '同期数据', message: `缺少周对周同期数据（${wow}）`, value: r.whCode })
       })
     }
@@ -119,7 +121,8 @@ export default function UploadCenter({ data, onData }: { data: StoredData; onDat
     catch (e) { setMessage(`保存失败：${e instanceof Error ? e.message : '服务端写入异常'}`) }
     finally { setSaving(false) }
   }
-  const exportClean = () => {
+  const exportClean = async () => {
+    const { utils, writeFile } = await import('xlsx')
     const wb = utils.book_new()
     utils.book_append_sheet(wb, utils.json_to_sheet(data.hotels), 'DimHotel')
     utils.book_append_sheet(wb, utils.json_to_sheet(data.lastYear), 'LastYearSummer')
@@ -128,7 +131,8 @@ export default function UploadCenter({ data, onData }: { data: StoredData; onDat
     utils.book_append_sheet(wb, utils.json_to_sheet(data.renovations || []), 'Renovations')
     writeFile(wb, '华西预警清洗标准数据.xlsx')
   }
-  const downloadTemplate = (templateKind: DataKind) => {
+  const downloadTemplate = async (templateKind: DataKind) => {
+    const { utils, writeFile } = await import('xlsx')
     const headers = templateKind === 'hotels'
       ? ['酒店名称','酒店WH编码','酒店区域','酒店省区','省总姓名','酒店片区','片区总姓名','经营状态','经营类型','管理类型','酒店品牌','省份','城市','城市等级','行政区域','酒店商圈','商圈属性','收益管理商圈','开业日期','财务品牌定位','中国区品牌定位','城市市场属性','店总姓名','物理房量']
       : templateKind === 'lastYear'

@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react'
-import { utils, writeFile } from 'xlsx'
 import { Download } from 'lucide-react'
 import type { MetricRow } from '../types/data'
 import { aggregate, aggregateBy } from '../utils/metrics'
@@ -36,7 +35,8 @@ export default function HierarchyOverview({ rows, level, title, onSelect }: {
     <td className={(m.rp || 0) < (m.lastRp || 0) ? 'negative' : 'positive'}>{fmtMoney(m.rp != null && m.lastRp != null ? m.rp - m.lastRp : null)}</td>
     <td>{m.highCount}</td>
   </tr>
-  const exportRows = () => {
+  const exportRows = async () => {
+    const { utils, writeFile } = await import('xlsx')
     const ws = utils.json_to_sheet(items.map(x => ({ 层级名称: x.name, 当前在营门店数: x.rows.length, 可售房: x.availableRooms, 预订率: x.bookingRate, 同期OCC: x.lastOcc, 在手ADR: x.adr, 理论RP: x.rp, 同期RP: x.lastRp, 高风险: x.highCount })))
     const wb = utils.book_new(); utils.book_append_sheet(wb, ws, '当前筛选结果'); writeFile(wb, `${title}.xlsx`)
   }

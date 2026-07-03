@@ -16,6 +16,9 @@ import {
   type RemoteDataEnvelope,
 } from './remoteData'
 import { channelGroup } from './channels'
+import { buildComparisonRows, buildMetricRows } from './metrics'
+import { buildStoreInsights } from './storeInsights'
+import { mergePreviousByTargetDate, previousFinalAsBatch } from './snapshotVersions'
 
 const configuredBase = String(import.meta.env.VITE_API_BASE || '').replace(/\/$/, '')
 const API_BASE = configuredBase || (import.meta.env.DEV && location.port === '5173' ? 'http://localhost:8787' : '')
@@ -76,13 +79,6 @@ export async function fetchData(): Promise<StoredData> {
   lastRemoteData = local
   lastRemoteManifest = null
   return local
-}
-
-export async function fetchFullData(): Promise<StoredData> {
-  if (!lastRemoteManifest) return fetchData()
-  const hydrated = await hydrateRemoteData(lastRemoteManifest, loadRemoteChunk, false)
-  lastRemoteData = hydrated
-  return hydrated
 }
 
 const MAX_CHUNK_BYTES = 768 * 1024
@@ -240,6 +236,47 @@ function compactPublicRows(rows: SnapshotRecord[]) {
   })
 }
 
+function attachStoreInsights(
+  batches: Array<{ batch: SnapshotBatch; rows: SnapshotRecord[] }>,
+  previousRows: SnapshotRecord[],
+  data: StoredData,
+) {
+  const archivedPrevious = previousRows.length && data.previousFinalSnapshot
+    ? previousFinalAsBatch({ ...data.previousFinalSnapshot, rows: previousRows })
+    : undefined
+  return batches.map(({ batch, rows }, index, all) => {
+    const current = { ...batch, rows }
+    const prior = index > 0 ? { ...all[index - 1].batch, rows: all[index - 1].rows } : undefined
+    const previous = mergePreviousByTargetDate(prior, archivedPrevious)
+    const metrics = buildMetricRows(
+      data.hotels,
+      current,
+      previous,
+      data.lastYear,
+      data.renovations || [],
+      data.sameLeadSnapshots || [],
+    )
+    const insightByKey = [...new Set(metrics.map(row => row.targetDate))].reduce<Record<string, ReturnType<typeof buildStoreInsights>>>((result, targetDate) => {
+      const dayRows = metrics.filter(row => row.targetDate === targetDate)
+      const comparisonRows = buildComparisonRows(data.hotels, data.lastYear, targetDate).rows
+      const dayChannelRows = rows.filter(row => row.targetDate === targetDate)
+      result[targetDate] = buildStoreInsights(dayRows, comparisonRows, dayChannelRows, data.settings?.priceAdvice)
+      return result
+    }, {})
+    const seen = new Set<string>()
+    return {
+      batch,
+      rows: rows.map(row => {
+        const key = `${row.whCode}|${row.targetDate}`
+        if (seen.has(key)) return row
+        seen.add(key)
+        const insight = insightByKey[row.targetDate]?.[row.whCode]
+        return insight ? { ...row, precomputedStoreInsight: insight } : row
+      }),
+    }
+  })
+}
+
 async function publishVersionedData(data: StoredData, onProgress?: (progress: SaveProgress) => void): Promise<StoredData> {
   const version = createVersionInfo(data, '线上最新版本')
   const priorData = lastRemoteData
@@ -253,10 +290,17 @@ async function publishVersionedData(data: StoredData, onProgress?: (progress: Sa
     qualityIssues: priorData?.qualityIssues === data.qualityIssues ? priorManifest?.arrays.qualityIssues : undefined,
   }
   const targetDates = new Set(data.batches.flatMap(batch => batch.rows.map(row => row.targetDate)).filter(Boolean))
+  const manuallyMappedComparisonDates = new Set(data.lastYear.filter(row => row.mappedDate && targetDates.has(row.mappedDate)).map(row => row.date))
   const publicLastYearRows = data.lastYear.filter(row => row.mappedDate ? targetDates.has(row.mappedDate) : targetDates.has(addDays(row.date, 364)))
-  const publicSameLeadRows = (data.sameLeadSnapshots || []).filter(row => targetDates.has(addDays(row.date, 364)))
-  const publicBatchRows = data.batches.map(batch => ({ batch, rows: compactPublicRows(batch.rows) }))
+  const publicSameLeadRows = (data.sameLeadSnapshots || []).filter(row =>
+    targetDates.has(addDays(row.date, 364)) || manuallyMappedComparisonDates.has(row.date),
+  )
   const publicPreviousRows = data.previousFinalSnapshot ? compactPublicRows(data.previousFinalSnapshot.rows.filter(row => targetDates.has(row.targetDate))) : []
+  const publicBatchRows = attachStoreInsights(
+    data.batches.map(batch => ({ batch, rows: compactPublicRows(batch.rows) })),
+    publicPreviousRows,
+    data,
+  )
   const [hotels, lastYear, sameLeadSnapshots, renovations, qualityIssues, batches, previousRowKeys, publicLastYear, publicSameLeadSnapshots, publicBatches, publicPreviousRowKeys] = await Promise.all([
     uploadChunks(data.hotels, reusableArrays.hotels, tracker),
     uploadChunks(data.lastYear, reusableArrays.lastYear, tracker),

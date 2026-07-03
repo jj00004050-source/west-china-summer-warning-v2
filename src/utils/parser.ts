@@ -1,8 +1,8 @@
-import { read, utils } from 'xlsx'
 import type { DataKind, Hotel, LastYearRecord, QualityIssue, RenovationRecord, SameLeadSnapshotRecord, SnapshotRecord } from '../types/data'
 import { normalizeChannel } from './channelMapping'
 
 export async function readFile(file: File) {
+  const { read, utils } = await import('xlsx')
   const buffer = await file.arrayBuffer()
   const book = read(buffer, { type: 'array', cellDates: false })
   const sheet = book.Sheets[book.SheetNames[0]]

@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react'
-import { utils, writeFile } from 'xlsx'
 import { Download, Search } from 'lucide-react'
 import type { ComparisonRow, MetricRow, PriceAdviceSettings, SnapshotRecord } from '../types/data'
 import { fmtMoney, fmtPct, fmtPp } from '../utils/formatter'
@@ -21,7 +20,8 @@ import {
 } from '../utils/storeAnomalies'
 
 type SortKey = 'name' | 'province' | 'availableRooms' | 'bookingRate' | 'zoneGap' | 'adr' | 'rp' | 'lastRp' | 'rpGap' | 'snapshotChange' | 'otaShare' | 'onlineShare'
-type EnrichedStore = { row: MetricRow; zoneRate: number | null; zoneGap: number | null; mix: StoreChannelMix; anomaly: StoreAnomaly; priceAdvice: PriceAdvice; typeProfile: ReturnType<typeof storeTypeProfile>; renovationTags: string[] }
+type PriceAdviceView = Pick<PriceAdvice, 'label' | 'reason' | 'quantityPriceStatus' | 'threshold'>
+type EnrichedStore = { row: MetricRow; zoneRate: number | null; zoneGap: number | null; mix: StoreChannelMix; anomaly: StoreAnomaly; priceAdvice: PriceAdviceView; typeProfile: ReturnType<typeof storeTypeProfile>; renovationTags: string[] }
 
 const anomalyOptions = ['全部','高风险','中风险','关注项','口径提示','0预定','低预订率','低于商圈','RP缺口大','量价双降','量升价降','价格异常','渠道异常','直营风险','无同期','新开无可比','商圈未配置','数据待核验']
 const cardDefinitions = [
@@ -104,6 +104,23 @@ export default function StoreWarningTable({ rows, benchmarkRows = rows, comparis
   })), [zoneGroups])
   const channelByHotel = useMemo(() => buildStoreChannelMix(channelRows), [channelRows])
   const enriched = useMemo<EnrichedStore[]>(() => rows.map(row => {
+    if (row.precomputedStoreInsight) {
+      const insight = row.precomputedStoreInsight
+      return {
+        row,
+        zoneRate: insight.zoneRate,
+        zoneGap: insight.zoneGap,
+        mix: insight.mix,
+        anomaly: insight.anomaly,
+        priceAdvice: {
+          ...insight.priceAdvice,
+          label: insight.priceAdvice.label as PriceAdviceLabel,
+          quantityPriceStatus: insight.priceAdvice.quantityPriceStatus as PriceAdvice['quantityPriceStatus'],
+        },
+        typeProfile: insight.typeProfile,
+        renovationTags: insight.renovationTags,
+      }
+    }
     const zoneRate = row.revenueZone ? zoneRates[row.revenueZone] ?? null : null
     const zoneGap = row.bookingRate != null && zoneRate != null ? row.bookingRate - zoneRate : null
     const mix = channelByHotel[row.whCode] || EMPTY_STORE_MIX
@@ -174,7 +191,8 @@ export default function StoreWarningTable({ rows, benchmarkRows = rows, comparis
   useEffect(() => { if (page > pages) setPage(pages) }, [page, pages])
   const doSort = (key: SortKey) => { if (sort === key) setAsc(value => !value); else { setSort(key); setAsc(true) } }
   const chooseFilter = (value: string) => { setAnomalyFilter(value); setPage(1) }
-  const exportRows = () => {
+  const exportRows = async () => {
+    const { utils, writeFile } = await import('xlsx')
     const ws = utils.json_to_sheet(filtered.map(({ row, zoneRate, zoneGap, mix, anomaly, priceAdvice, typeProfile, renovationTags }) => ({
       门店名称: row.name, WH编码: row.whCode, 省区: row.province, 片区: row.area, 城市: row.city, 收益管理商圈: row.revenueZone,
       品牌: row.brand, 品牌定位: row.positioning, 经营类型: row.operationType, 管理类型: row.managementType, 是否直营: anomaly.direct ? '是' : '否',
@@ -208,6 +226,14 @@ export default function StoreWarningTable({ rows, benchmarkRows = rows, comparis
         <button onClick={exportRows}><Download size={14}/>导出当前结果</button></div>
       </div>
       <div className="store-table-methodology">门店明细仅展示当前维度表中经营状态为在营 / 在营业的门店；同期数据仅用于当前在营门店的对比。无同期、新开无可比、商圈未配置属于口径状态，不直接计入经营异常。</div>
+      <details className="risk-definition-note">
+        <summary>高风险与异常门店如何判断？</summary>
+        <div>
+          <p><b>异常门店：</b>至少命中一项经营异常标签，包括0预定、低预订率、低于商圈、RP缺口大、预订率或ADR下降、量价双降、OTA偏高或线上直销偏低等。</p>
+          <p><b>高风险门店：</b>异常门店中触发近端严重条件的S级门店，重点包括D0-D1零预定、D0-D2低预订且进速弱、明显落后升温商圈、价格压制转化、近端量价双降，以及直营店渠道结构严重失衡。</p>
+          <p><b>不直接算异常：</b>无同期、新开无可比、商圈未配置、开业日期缺失等属于口径状态；数据待核验属于数据治理提示。</p>
+        </div>
+      </details>
       <div className="table-scroll"><table><thead><tr>{th('name', '门店')}{th('province', '省区 / 片区 / 可售房')}{th('bookingRate', '预订率 / 商圈对标')}{th('adr', '在手ADR')}{th('rp', '理论RP')}{th('lastRp', '同期RP')}{th('rpGap', 'RP缺口')}{th('snapshotChange', `RP${comparisonLabel}`)}<th>提价建议</th>{th('otaShare', '渠道占比')}</tr></thead>
         <tbody>{pageRows.map(({ row, zoneRate, zoneGap, mix, anomaly, priceAdvice, typeProfile, renovationTags }) => <tr className={row.whCode === highlightCode ? 'diagnostic-highlight-row' : priority.has(row.whCode) ? 'diagnostic-priority-row' : ''} key={`${row.whCode}-${row.dayOffset}`} onClick={() => onStore(row)}>
           <td><div className="store-name-line"><span className={`store-risk-grade grade-${anomaly.grade}`}>{GRADE_LABEL[anomaly.grade]}</span><b>{row.name}</b></div><small>{row.whCode}</small>

@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight, Download } from 'lucide-react'
-import { utils, writeFile } from 'xlsx'
 import type { ComparisonRow, MetricRow, SnapshotRecord } from '../types/data'
 import { aggregate, aggregateBy } from '../utils/metrics'
 import { fmtMoney, fmtPct, fmtPp } from '../utils/formatter'
@@ -35,7 +34,8 @@ export default function AreaRevenueZoneMatrix({ rows, comparisonRows, channelRow
     <td>{fmtMoney(m.adr)}<MetricTrendLines kind="money" change={m.adrChange} sameLeadGap={m.sameLeadAdrGap}/></td><td>{fmtMoney(m.rp)}<MetricTrendLines kind="money" change={m.rpChange} sameLeadGap={m.sameLeadRpGap}/></td><td>{fmtMoney(m.lastRp)}</td>
     <td className={(m.rp || 0) < (m.lastRp || 0) ? 'negative' : 'positive'}>{fmtMoney(m.rp != null && m.lastRp != null ? m.rp - m.lastRp : null)}</td><td>{m.highCount}</td><td><MiniChannelDonut rows={channelRows} hotelIds={new Set(itemRows.map(row => row.whCode))}/></td>
   </>
-  const exportRows = () => {
+  const exportRows = async () => {
+    const { utils, writeFile } = await import('xlsx')
     const data = areas.flatMap(area => {
       const parent = { 层级: '片区', 片区: area.name, 收益管理商圈: '', 门店数: area.rows.length, 可售房: area.availableRooms, 预订房间数: area.bookedRooms, 预订率: area.bookingRate, 预订率环比: area.bookingRateChange, 同期同提前期预订率: area.sameLeadBookingRate, 同提前期预订率差异: area.sameLeadBookingRateGap, 同期OCC: area.lastOcc, 在手ADR: area.adr, 在手ADR环比: area.adrChange, 同期同提前期在手ADR: area.sameLeadAdr, 同提前期ADR差异: area.sameLeadAdrGap, 理论RP: area.rp, 理论RP环比: area.rpChange, 同期同提前期理论RP: area.sameLeadRp, 同提前期理论RP差异: area.sameLeadRpGap, 同期RP: area.lastRp, 高风险: area.highCount }
       const zones = aggregateBy(area.rows, 'revenueZone', comparisonRows.filter(r => r.area === area.name)).map(zone => ({ 层级: '收益管理商圈', 片区: area.name, 收益管理商圈: zone.name, 门店数: zone.rows.length, 可售房: zone.availableRooms, 预订房间数: zone.bookedRooms, 预订率: zone.bookingRate, 预订率环比: zone.bookingRateChange, 同期同提前期预订率: zone.sameLeadBookingRate, 同提前期预订率差异: zone.sameLeadBookingRateGap, 同期OCC: zone.lastOcc, 在手ADR: zone.adr, 在手ADR环比: zone.adrChange, 同期同提前期在手ADR: zone.sameLeadAdr, 同提前期ADR差异: zone.sameLeadAdrGap, 理论RP: zone.rp, 理论RP环比: zone.rpChange, 同期同提前期理论RP: zone.sameLeadRp, 同提前期理论RP差异: zone.sameLeadRpGap, 同期RP: zone.lastRp, 高风险: zone.highCount }))

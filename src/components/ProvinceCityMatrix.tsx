@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight, Download } from 'lucide-react'
-import { utils, writeFile } from 'xlsx'
 import type { ComparisonRow, MetricRow, SnapshotRecord } from '../types/data'
 import { aggregate, aggregateBy } from '../utils/metrics'
 import { fmtMoney, fmtPct, fmtPp } from '../utils/formatter'
@@ -35,7 +34,8 @@ export default function ProvinceCityMatrix({ rows, comparisonRows, channelRows, 
     <td>{fmtMoney(m.adr)}<MetricTrendLines kind="money" change={m.adrChange} sameLeadGap={m.sameLeadAdrGap}/></td><td>{fmtMoney(m.rp)}<MetricTrendLines kind="money" change={m.rpChange} sameLeadGap={m.sameLeadRpGap}/></td><td>{fmtMoney(m.lastRp)}</td>
     <td className={(m.rp || 0) < (m.lastRp || 0) ? 'negative' : 'positive'}>{fmtMoney(m.rp != null && m.lastRp != null ? m.rp - m.lastRp : null)}</td><td>{m.highCount}</td><td><MiniChannelDonut rows={channelRows} hotelIds={new Set(itemRows.map(r => r.whCode))}/></td>
   </>
-  const exportRows = () => {
+  const exportRows = async () => {
+    const { utils, writeFile } = await import('xlsx')
     const data = provinces.flatMap(p => {
       const province = { 层级: '省区', 省区: p.name, 城市: '', 门店数: p.rows.length, 可售房: p.availableRooms, 预订房间数: p.bookedRooms, 预订率: p.bookingRate, 预订率环比: p.bookingRateChange, 同期同提前期预订率: p.sameLeadBookingRate, 同提前期预订率差异: p.sameLeadBookingRateGap, 同期OCC: p.lastOcc, 在手ADR: p.adr, 在手ADR环比: p.adrChange, 同期同提前期在手ADR: p.sameLeadAdr, 同提前期ADR差异: p.sameLeadAdrGap, 理论RP: p.rp, 理论RP环比: p.rpChange, 同期同提前期理论RP: p.sameLeadRp, 同提前期理论RP差异: p.sameLeadRpGap, 同期RP: p.lastRp, 高风险: p.highCount }
       const cities = aggregateBy(p.rows, 'city', comparisonRows.filter(r => r.province === p.name)).map(c => ({ 层级: '城市', 省区: p.name, 城市: c.name, 门店数: c.rows.length, 可售房: c.availableRooms, 预订房间数: c.bookedRooms, 预订率: c.bookingRate, 预订率环比: c.bookingRateChange, 同期同提前期预订率: c.sameLeadBookingRate, 同提前期预订率差异: c.sameLeadBookingRateGap, 同期OCC: c.lastOcc, 在手ADR: c.adr, 在手ADR环比: c.adrChange, 同期同提前期在手ADR: c.sameLeadAdr, 同提前期ADR差异: c.sameLeadAdrGap, 理论RP: c.rp, 理论RP环比: c.rpChange, 同期同提前期理论RP: c.sameLeadRp, 同提前期理论RP差异: c.sameLeadRpGap, 同期RP: c.lastRp, 高风险: c.highCount }))

@@ -61,9 +61,10 @@ export default function StoreSpecialtyPanel({ rows, comparisonRows, channelRows,
   const numericOptions = useMemo(() => openingAgeOptions.filter(option => numericAge(option) != null), [openingAgeOptions])
   const selected = rows.filter(row => matchesStoreType(row, value) && matchesRenovationFilter(row, renovationFilter))
   const metric = aggregate(selected)
-  const mixByHotel = buildStoreChannelMix(channelRows)
+  const needsRuntimeInsight = rows.some(row => !row.precomputedStoreInsight)
+  const mixByHotel = needsRuntimeInsight ? buildStoreChannelMix(channelRows) : {}
   const selectedMix = selected.reduce((result, row) => {
-    const mix = mixByHotel[row.whCode]
+    const mix = row.precomputedStoreInsight?.mix || mixByHotel[row.whCode]
     if (!mix) return result
     result.ota += mix.ota * mix.total; result.online += mix.online * mix.total; result.offline += mix.offline * mix.total; result.total += mix.total
     return result
@@ -84,6 +85,13 @@ export default function StoreSpecialtyPanel({ rows, comparisonRows, channelRows,
   const profiles = selected.map(storeTypeProfile)
   const specialtyLabel = renovationFilter !== '全部' ? renovationFilter : value
   const selectedAdvice = selected.map(row => {
+    if (row.precomputedStoreInsight) {
+      return {
+        row,
+        zone: row.revenueZone ? zoneMetrics[row.revenueZone] : undefined,
+        advice: row.precomputedStoreInsight.priceAdvice,
+      }
+    }
     const zone = row.revenueZone ? zoneMetrics[row.revenueZone] : undefined
     const advice = buildPriceAdvice(row, {
       zoneBookingRate: zone?.bookingRate ?? null, zoneAdr: zone?.adr ?? null, zoneLastOcc: zone?.lastOcc ?? null,
@@ -94,12 +102,14 @@ export default function StoreSpecialtyPanel({ rows, comparisonRows, channelRows,
     return { row, zone, advice }
   })
   const priceLabels = selectedAdvice.map(item => item.advice.label)
-  const highRisk = selectedAdvice.filter(({ row, zone, advice }) => analyzeStore(
-    row,
-    zone?.bookingRate ?? null,
-    mixByHotel[row.whCode] || EMPTY_STORE_MIX,
-    false,
-    { zoneAdr: zone?.adr ?? null, zoneBookingRateChange: zone?.bookingRateChange ?? null, priceAdviceLabel: advice.label },
+  const highRisk = selectedAdvice.filter(({ row, zone, advice }) => (
+    row.precomputedStoreInsight?.anomaly || analyzeStore(
+      row,
+      zone?.bookingRate ?? null,
+      mixByHotel[row.whCode] || EMPTY_STORE_MIX,
+      false,
+      { zoneAdr: zone?.adr ?? null, zoneBookingRateChange: zone?.bookingRateChange ?? null, priceAdviceLabel: advice.label },
+    )
   ).grade === 'S').length
   const renovationTypes = [...new Set(rows.filter(row => row.isRenovated).map(row => row.renovationType || '改造类型未标记'))].sort((a,b) => a.localeCompare(b, 'zh-CN'))
   const renovationPerspective = renovationFilter === '改造店' || renovationTypes.includes(renovationFilter)
@@ -111,7 +121,11 @@ export default function StoreSpecialtyPanel({ rows, comparisonRows, channelRows,
         ['改造店数量', rows.filter(row => storeTypeProfile(row).isRenovated).length, '家'],
         ['新开0预定', rows.filter(row => storeTypeProfile(row).isNew && row.bookedRooms === 0).length, '家'],
         ['改造0预定', rows.filter(row => storeTypeProfile(row).isRenovated && row.bookedRooms === 0).length, '家'],
-        ['直营风险门店', rows.filter(row => storeTypeProfile(row).direct && (row.risk === 'high' || row.risk === 'watch')).length, '家'],
+        ['直营风险门店', rows.filter(row => {
+          if (!storeTypeProfile(row).direct) return false
+          const grade = row.precomputedStoreInsight?.anomaly.grade
+          return grade ? grade === 'S' || grade === 'A' : row.risk === 'high' || row.risk === 'watch'
+        }).length, '家'],
       ]
     : [
         [`${specialtyLabel}数量`, selected.length, '家'],

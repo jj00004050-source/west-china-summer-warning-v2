@@ -61,6 +61,55 @@ export interface SnapshotRecord {
   channelRevenue: number
   channelAdr?: number
   channelBookingRate?: number
+  /** 管理员发布版本时生成；普通看板直接读取，避免逐店重复计算标签、价格建议与渠道结构。 */
+  precomputedStoreInsight?: StorePrecomputedInsight
+}
+
+export interface StorePrecomputedInsight {
+  zoneRate: number | null
+  zoneGap: number | null
+  mix: {
+    ota: number
+    online: number
+    offline: number
+    other: number
+    ctrip: number
+    meituan: number
+    fliggy: number
+    mainName: string
+    mainShare: number
+    total: number
+  }
+  anomaly: {
+    grade: 'S' | 'A' | 'B' | 'C' | 'normal'
+    businessTags: string[]
+    businessReasons: string[]
+    statusTags: string[]
+    statusReasons: string[]
+    dataTags: string[]
+    dataReasons: string[]
+    bookingRateChange: number | null
+    adrChange: number | null
+    rpChange: number | null
+    bookedChange: number | null
+    direct: boolean
+  }
+  priceAdvice: {
+    label: string
+    reason: string
+    quantityPriceStatus: string
+    threshold: number
+  }
+  typeProfile: {
+    direct: boolean
+    openMonths: number | null
+    isNew: boolean
+    newStage: string
+    isRenovated: boolean
+    renovationType: string
+    typeTags: string[]
+  }
+  renovationTags: string[]
 }
 
 export interface SameLeadSnapshotRecord {
@@ -119,7 +168,7 @@ export interface StoredData {
   channelMappings: Record<string, string>
   qualityIssues?: QualityIssue[]
   version?: DashboardVersionInfo
-  /** 线上公共看板使用上传阶段预聚合后的轻量数据；管理员及完整渠道视图仍可按需读取原始明细。 */
+  /** 线上公共看板使用上传阶段预聚合后的轻量数据；渠道视图不再读取原始渠道明细。 */
   publicOptimized?: boolean
   settings?: {
     countMissingBookingAsZero?: boolean
@@ -245,6 +294,7 @@ export interface MetricRow {
   tags: string[]
   targetDate: string
   dayOffset: string
+  precomputedStoreInsight?: StorePrecomputedInsight
 }
 
 export interface ComparisonRow {

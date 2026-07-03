@@ -22,7 +22,17 @@ function hotelSnapshot(rows: SnapshotRecord[]) {
   const channels = Object.entries(group(rows, r => r.channel || '其他')).map(([name, rs]) => ({
     name, nights: sum(rs.map(r => r.channelNights || r.bookedRooms)),
   })).sort((a, b) => b.nights - a.nights)
-  return { availableRooms, bookedRooms, pricedRooms, bookingRevenue, bookingRate, adr, rp, mainChannel: channels[0]?.name || '--' }
+  return {
+    availableRooms,
+    bookedRooms,
+    pricedRooms,
+    bookingRevenue,
+    bookingRate,
+    adr,
+    rp,
+    mainChannel: channels[0]?.name || '--',
+    precomputedStoreInsight: rows.find(row => row.precomputedStoreInsight)?.precomputedStoreInsight,
+  }
 }
 
 function lastYearMetric(rows: LastYearRecord[]) {
@@ -169,15 +179,15 @@ export function buildMetricRows(
   if (lastYearCacheSource !== lastYear) { lastYearCacheSource = lastYear; lastYearCache = group(lastYear, r => r.whCode) }
   const renovationsByHotel = group(renovations, record => record.whCode)
   const sameLeadByKey = group(sameLeadSnapshots, record => `${record.whCode}|${record.date}`)
+  const mappedDateByTarget = new Map(lastYear.filter(record => record.mappedDate).map(record => [record.mappedDate!, record.date]))
   return Object.values(currentByKey).map(rows => {
     const first = rows[0]
     const hotel = hotelCache.get(first.whCode)
     const cur = hotelSnapshot(rows)
     const prevRows = prevByKey[`${first.whCode}|${first.targetDate}`]
     const prev = prevRows?.length ? hotelSnapshot(prevRows) : null
-    const targetTime = new Date(`${first.targetDate}T00:00:00`).getTime()
-    const lastDateString = new Date(targetTime - 364 * 86400000).toISOString().slice(0, 10)
-    const mappedComparisonDate = lastYear.find(record => record.mappedDate === first.targetDate)?.date || lastDateString
+    const lastDateString = dateMinus364(first.targetDate)
+    const mappedComparisonDate = mappedDateByTarget.get(first.targetDate) || lastDateString
     const lyRows = (lastYearCache[first.whCode] || []).filter(r => r.mappedDate === first.targetDate || (!r.mappedDate && r.date === lastDateString))
     const ly = lastYearMetric(lyRows)
     const sameLead = sameLeadMetric(sameLeadByKey[`${first.whCode}|${mappedComparisonDate}`] || [])
@@ -216,6 +226,7 @@ export function buildMetricRows(
       mainChannel: cur.mainChannel, risk: judged.risk,
       tags: [...judged.tags, ...(hotel && hotel.rooms <= 0 ? ['物理房量缺失'] : [])],
       targetDate: first.targetDate, dayOffset: first.dayOffset,
+      precomputedStoreInsight: cur.precomputedStoreInsight,
     }
   })
 }
@@ -267,8 +278,11 @@ export function aggregate(rows: MetricRow[], comparisonRows?: ComparisonRow[]) {
     sameLeadBookingRateGap: bookingRate != null && sameLeadBookingRate != null ? bookingRate - sameLeadBookingRate : null,
     sameLeadAdrGap: adr != null && sameLeadAdr != null ? adr - sameLeadAdr : null,
     sameLeadRpGap: rp != null && sameLeadRp != null ? rp - sameLeadRp : null,
-    warningCount: rows.filter(r => r.risk === 'high' || r.risk === 'watch').length,
-    highCount: rows.filter(r => r.risk === 'high').length,
+    warningCount: rows.filter(r => {
+      const grade = r.precomputedStoreInsight?.anomaly.grade
+      return grade ? grade === 'S' || grade === 'A' : r.risk === 'high' || r.risk === 'watch'
+    }).length,
+    highCount: rows.filter(r => r.precomputedStoreInsight?.anomaly.grade === 'S' || (!r.precomputedStoreInsight && r.risk === 'high')).length,
   }
 }
 
