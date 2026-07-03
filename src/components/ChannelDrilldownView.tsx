@@ -1,11 +1,9 @@
 import { useMemo, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
-import { AlertTriangle, BarChart3, ChevronRight, RotateCcw, Store } from 'lucide-react'
-import type { ChannelAnomalySettings, MetricRow, SnapshotRecord } from '../types/data'
+import { BarChart3, ChevronRight, RotateCcw } from 'lucide-react'
+import type { SnapshotRecord } from '../types/data'
 import { channelColor } from '../utils/channels'
 import { fmtMoney, fmtPct, fmtPp } from '../utils/formatter'
-import { ChannelAnomalyTab, StoreChannelAnomalyTab } from './ChannelAnomalyPanels'
-import type { ChannelAnomalyMetric } from '../utils/channelAnomalies'
 
 type Level = 'channelLevel1' | 'channelLevel2' | 'channelLevel3'
 type ChannelMetric = { name: string; rooms: number; revenue: number; priced: number; share: number; contribution: number; adr: number | null; shareDelta: number | null; contributionDelta: number | null; adrDelta: number | null }
@@ -57,16 +55,11 @@ function LevelChart({ title, subtitle, items, tone, onSelect }: { title: string;
   </section>
 }
 
-export default function ChannelDrilldownView({ rows, previousRows, stores, comparisonLabel, settings, onStore }: {
+export default function ChannelDrilldownView({ rows, previousRows, comparisonLabel }: {
   rows: SnapshotRecord[]
   previousRows: SnapshotRecord[]
-  stores: MetricRow[]
   comparisonLabel: string
-  settings?: Partial<ChannelAnomalySettings>
-  onStore: (store: MetricRow) => void
 }) {
-  const [tab, setTab] = useState<'structure' | 'anomaly' | 'stores'>('structure')
-  const [storeAnomalyFilter, setStoreAnomalyFilter] = useState('全部')
   const [level1, setLevel1] = useState('')
   const [level2, setLevel2] = useState('')
   const [level3, setLevel3] = useState('')
@@ -79,10 +72,6 @@ export default function ChannelDrilldownView({ rows, previousRows, stores, compa
   const level3Rows = level2Rows.filter(r => !level2 || nameAt(r, 'channelLevel2') === level2)
   const previousLevel3Rows = previousLevel2Rows.filter(r => !level2 || nameAt(r, 'channelLevel2') === level2)
   const level3Options = [...new Set(level3Rows.map(r => nameAt(r, 'channelLevel3')))]
-  const selectedRows = level3Rows.filter(r => !level3 || nameAt(r, 'channelLevel3') === level3)
-  const selectedPreviousRows = previousLevel3Rows.filter(r => !level3 || nameAt(r, 'channelLevel3') === level3)
-  const selectedStoreCodes = new Set(selectedRows.map(row => row.whCode))
-  const selectedStores = stores.filter(store => selectedStoreCodes.has(store.whCode))
   const level1Metrics = useMemo(() => aggregateLevel(rows, previousRows, 'channelLevel1', denominator, previousDenominator), [rows, previousRows, denominator, previousDenominator])
   const level2Metrics = useMemo(() => aggregateLevel(level2Rows, previousLevel2Rows, 'channelLevel2', denominator, previousDenominator), [level2Rows, previousLevel2Rows, denominator, previousDenominator])
   const level3Metrics = useMemo(() => aggregateLevel(level3Rows, previousLevel3Rows, 'channelLevel3', denominator, previousDenominator), [level3Rows, previousLevel3Rows, denominator, previousDenominator])
@@ -90,11 +79,6 @@ export default function ChannelDrilldownView({ rows, previousRows, stores, compa
   const totalRooms = rows.reduce((sum, row) => sum + row.bookedRooms, 0)
   const totalRevenue = rows.reduce((sum, row) => sum + row.bookingRevenue, 0)
   const totalPriced = rows.reduce((sum, row) => sum + row.pricedRooms, 0)
-  const chooseAnomalyChannel = (item: ChannelAnomalyMetric) => {
-    if (item.level === 'channelLevel1') { setLevel1(item.name); setLevel2(''); setLevel3('') }
-    if (item.level === 'channelLevel2') { setLevel1(item.level1); setLevel2(item.name); setLevel3('') }
-    if (item.level === 'channelLevel3') { setLevel1(item.level1); setLevel2(item.level2); setLevel3(item.name) }
-  }
   return <div className="channel-drill-view">
     <section className="light-card channel-drill-filter">
       <div><small>渠道分析路径</small><strong>全部渠道</strong>{level1 && <><ChevronRight/><strong>{level1}</strong></>}{level2 && <><ChevronRight/><strong>{level2}</strong></>}{level3 && <><ChevronRight/><strong>{level3}</strong></>}</div>
@@ -108,22 +92,18 @@ export default function ChannelDrilldownView({ rows, previousRows, stores, compa
       <article><small>整体预订率</small><b>{fmtPct(denominator ? totalRooms / denominator : null)}</b></article><article><small>整体在手ADR</small><b>{fmtMoney(totalPriced ? totalRevenue / totalPriced : null)}</b></article>
     </section>
     <section className="channel-view-navigation">
-      <div className="channel-view-navigation-copy"><small>CHANNEL ANALYSIS</small><b>渠道分析视角</b><span>渠道异常与门店异常可直接定位风险来源及受影响门店</span></div>
+      <div className="channel-view-navigation-copy"><small>CHANNEL ANALYSIS</small><b>渠道分析视角</b><span>查看一级、二级、三级渠道结构与贡献</span></div>
       <div className="diagnostic-tabs channel-view-tabs">
-        <button className={tab === 'structure' ? 'active' : ''} onClick={() => setTab('structure')}><BarChart3/><span><b>渠道结构</b><small>查看层级与占比</small></span></button>
-        <button className={`attention ${tab === 'anomaly' ? 'active' : ''}`} onClick={() => setTab('anomaly')}><AlertTriangle/><span><b>渠道异常</b><small>识别量价及结构异动</small></span><em>重点</em></button>
-        <button className={`attention ${tab === 'stores' ? 'active' : ''}`} onClick={() => setTab('stores')}><Store/><span><b>门店异常</b><small>定位受影响门店</small></span><em>下钻</em></button>
+        <button className="active" type="button"><BarChart3/><span><b>渠道结构</b><small>查看层级与占比</small></span></button>
       </div>
     </section>
-    {tab === 'structure' && <><div className="channel-level-grid">
+    <div className="channel-level-grid">
       <LevelChart title="一级渠道表现" subtitle="点击渠道，下钻查看对应二级渠道" items={level1Metrics} tone="L1" onSelect={name => { setLevel1(name); setLevel2(''); setLevel3('') }}/>
       <LevelChart title="二级渠道表现" subtitle={level1 ? `当前一级渠道：${level1}` : '当前展示全部一级渠道下的二级渠道'} items={level2Metrics} tone="L2" onSelect={name => { setLevel2(name); setLevel3('') }}/>
       <LevelChart title="三级渠道表现" subtitle={level2 ? `当前二级渠道：${level2}` : '选择二级渠道后进一步聚焦'} items={level3Metrics} tone="L3" onSelect={name => setLevel3(name)}/>
     </div>
     <section className="light-card channel-drill-table"><div className="light-card-head"><div><h2>当前渠道层级指标明细</h2><p>占比、预订率贡献、ADR及{comparisonLabel}</p></div></div>
       <div className="province-table"><table><thead><tr><th>渠道名称</th><th>预订间夜</th><th>层级内占比</th><th>预订率贡献</th><th>在手ADR</th><th>占比{comparisonLabel}</th><th>贡献{comparisonLabel}</th><th>ADR{comparisonLabel}</th></tr></thead><tbody>{deepest.map(item => <tr key={item.name}><td><b><i className="channel-table-color" style={{background:channelColor(item.name)}}/>{item.name}</b></td><td>{item.rooms.toLocaleString()}</td><td>{fmtPct(item.share)}</td><td>{fmtPct(item.contribution)}</td><td>{fmtMoney(item.adr)}</td><td className={(item.shareDelta || 0) < 0 ? 'negative' : 'positive'}>{fmtPp(item.shareDelta)}</td><td className={(item.contributionDelta || 0) < 0 ? 'negative' : 'positive'}>{fmtPp(item.contributionDelta)}</td><td className={(item.adrDelta || 0) < 0 ? 'negative' : 'positive'}>{fmtMoney(item.adrDelta)}</td></tr>)}</tbody></table></div>
-    </section></>}
-    {tab === 'anomaly' && <ChannelAnomalyTab rows={selectedRows} previousRows={selectedPreviousRows} stores={selectedStores} settings={settings} onChannel={chooseAnomalyChannel} onStoreFilter={filter => { setStoreAnomalyFilter(filter); setTab('stores') }}/>}
-    {tab === 'stores' && <StoreChannelAnomalyTab key={storeAnomalyFilter} rows={selectedRows} previousRows={selectedPreviousRows} stores={selectedStores} settings={settings} initialFilter={storeAnomalyFilter} onStore={onStore}/>}
+    </section>
   </div>
 }

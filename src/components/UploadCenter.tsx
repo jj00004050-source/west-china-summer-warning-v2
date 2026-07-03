@@ -1,14 +1,13 @@
 import { useRef, useState } from 'react'
 import { utils, writeFile } from 'xlsx'
 import { CheckCircle2, Database, FileSpreadsheet, History, Save, SlidersHorizontal, Trash2, Upload, XCircle } from 'lucide-react'
-import type { ChannelAnomalySettings, DataKind, PriceAdviceSettings, QualityIssue, StoredData } from '../types/data'
+import type { DataKind, PriceAdviceSettings, QualityIssue, StoredData } from '../types/data'
 import { autoMap } from '../utils/fieldMapping'
 import { normalizeRows, readFile, validDate, validateRows, validateUploadStructure } from '../utils/parser'
 import { downloadJson, importBackup } from '../utils/storage'
 import FieldMapper from './FieldMapper'
 import DataQualityPanel from './DataQualityPanel'
 import { applySnapshotUpload } from '../utils/snapshotVersions'
-import { DEFAULT_CHANNEL_ANOMALY_SETTINGS } from '../utils/channelAnomalies'
 import { DEFAULT_PRICE_ADVICE_SETTINGS } from '../utils/priceAdvice'
 import type { SaveProgress } from '../utils/api'
 
@@ -145,11 +144,6 @@ export default function UploadCenter({ data, onData }: { data: StoredData; onDat
     writeFile(wb, `${kinds.find(x => x[0] === templateKind)?.[1]}模板.xlsx`)
   }
   const restore = async (file: File) => { try { await onData(await importBackup(file)); setMessage('备份已恢复到统一服务端') } catch (e) { setMessage(e instanceof Error ? e.message : '恢复失败') } }
-  const anomalySettings = { ...DEFAULT_CHANNEL_ANOMALY_SETTINGS, ...data.settings?.channelAnomaly }
-  const updateAnomalySetting = (key: keyof ChannelAnomalySettings, value: number) => onData({
-    ...data,
-    settings: { ...data.settings, channelAnomaly: { ...anomalySettings, [key]: value } },
-  })
   const priceSettings = { ...DEFAULT_PRICE_ADVICE_SETTINGS, ...data.settings?.priceAdvice, minBookingRateByDay: { ...DEFAULT_PRICE_ADVICE_SETTINGS.minBookingRateByDay, ...data.settings?.priceAdvice?.minBookingRateByDay } }
   const updatePriceSetting = (key: keyof PriceAdviceSettings, value: number) => onData({
     ...data,
@@ -174,19 +168,6 @@ export default function UploadCenter({ data, onData }: { data: StoredData; onDat
       <div className="data-actions"><button onClick={exportClean}>导出标准数据</button><button onClick={() => downloadJson(data)}>导出数据备份</button><button onClick={() => backupRef.current?.click()}>导入备份恢复</button><input hidden ref={backupRef} type="file" accept=".json" onChange={e => e.target.files?.[0] && restore(e.target.files[0])}/>
       <button className="danger" onClick={() => confirm('确定清空服务端全部经营数据？此操作不可撤销。') && onData({ hotels: [], lastYear: [], sameLeadSnapshots: [], batches: [], currentBaseDate: '', previousFinalSnapshot: undefined, mappings: data.mappings, channelMappings: data.channelMappings, settings: data.settings })}><Trash2 size={14}/>清空全部数据</button></div>
       <label className="missing-zero-setting"><input type="checkbox" checked={data.settings?.countMissingBookingAsZero !== false} onChange={e => onData({ ...data, settings: { ...data.settings, countMissingBookingAsZero: e.target.checked } })}/><span><b>缺失预订门店计入0预定数</b><small>仅针对维度表中当前在营、但目标日期完全无预订记录的门店</small></span></label>
-      <section className="channel-threshold-settings"><div><SlidersHorizontal/><span><b>渠道异常阈值</b><small>保存后立即应用于渠道异常与门店异常</small></span></div>
-        <div className="channel-threshold-grid">
-          {([
-            ['otaHighShare','OTA占比过高','%'],['singleChannelHighShare','单一渠道依赖','%'],['onlineDirectLowShare','线上直销偏低','%'],
-            ['shareSpikePp','占比突增','pp'],['shareDropPp','占比突降','pp'],['adrDropAmount','ADR明显下降','元'],
-            ['adrBelowOverallAmount','低于整体ADR','元'],['adrBelowOverallRate','低于整体ADR比例','%'],['lowPriceVolumeAdrDrop','低价拉量ADR降幅','元'],
-            ['directOnlineLowShare','直营直销偏低','%'],['lowSampleRooms','低样本间夜','间夜'],['lowSampleShare','低样本占比','%'],
-          ] as Array<[keyof ChannelAnomalySettings,string,string]>).map(([key, label, unit]) => {
-            const percent = unit === '%' || unit === 'pp'
-            return <label key={key}><span>{label}</span><div><input type="number" min="0" step={percent ? 1 : 1} value={percent ? Math.round(anomalySettings[key] * 100) : anomalySettings[key]} onChange={event => updateAnomalySetting(key, Number(event.target.value) / (percent ? 100 : 1))}/><em>{unit}</em></div></label>
-          })}
-        </div>
-      </section>
       <section className="channel-threshold-settings price-threshold-settings"><div><SlidersHorizontal/><span><b>提价建议阈值</b><small>D0-D6门槛及商圈、ADR、样本量规则</small></span></div>
         <div className="price-day-thresholds">{['D0','D1','D2','D3','D4','D5','D6'].map(day => <label key={day}><span>{day}</span><div><input type="number" min="0" max="100" value={Math.round((priceSettings.minBookingRateByDay[day] || 0) * 100)} onChange={event => onData({ ...data, settings: { ...data.settings, priceAdvice: { ...priceSettings, minBookingRateByDay: { ...priceSettings.minBookingRateByDay, [day]: Number(event.target.value) / 100 } } } })}/><em>%</em></div></label>)}</div>
         <div className="channel-threshold-grid">{([
