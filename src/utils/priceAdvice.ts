@@ -18,7 +18,7 @@ export type PriceAdviceLabel =
   | '商圈未配置，无法判断'
 
 export const DEFAULT_PRICE_ADVICE_SETTINGS: PriceAdviceSettings = {
-  minBookingRateByDay: { D0: .7, D1: .55, D2: .45, D3: .35, D4: .3, D5: .25, D6: .25 },
+  minBookingRateByDay: { D0: .7, D1: .6, D2: .5, D3: .42, D4: .35, D5: .3, D6: .25 },
   strongZoneGapPp: .1,
   mildZoneGapPp: .05,
   lowZoneGapPp: -.1,
@@ -80,10 +80,17 @@ const specialZoneType = (row: MetricRow) => {
   return ''
 }
 
-export const highBookingOpportunityFloor = (dayOffset: string) => dayOffset === 'D0' ? .5
-  : dayOffset === 'D1' ? .4
-    : dayOffset === 'D2' || dayOffset === 'D3' ? .35
-      : dayOffset === 'D4' ? .3 : .25
+const dayThresholds = (dayOffset: string) => {
+  if (dayOffset === 'D0') return [.7, .5, .3, .2] as const
+  if (dayOffset === 'D1') return [.6, .45, .28, .18] as const
+  if (dayOffset === 'D2') return [.5, .38, .25, .15] as const
+  if (dayOffset === 'D3') return [.42, .32, .22, .12] as const
+  if (dayOffset === 'D4') return [.35, .28, .18, .1] as const
+  if (dayOffset === 'D5') return [.3, .24, .15, .08] as const
+  return [.25, .2, .12, .06] as const
+}
+
+export const highBookingOpportunityFloor = (dayOffset: string) => dayThresholds(dayOffset)[1]
 
 export const isHighBookingPriority = (row: MetricRow) =>
   row.bookingRate != null &&
@@ -94,52 +101,14 @@ export const isHighBookingPriority = (row: MetricRow) =>
   row.adr != null &&
   row.adr > 0
 
-const actionByDay = (dayOffset: string, rate: number, topThreshold: number): PriceAdviceLabel => {
-  if (dayOffset === 'D0') {
-    if (rate >= .8) return '强烈建议提价'
-    if (rate >= .7) return '建议提价'
-    if (rate >= .5) return '建议小幅提价'
-    if (rate >= .3) return '阶梯式提价'
-    if (rate >= .2) return '保持观察'
-    return '不建议提价'
-  }
-  if (dayOffset === 'D1') {
-    if (rate >= .7) return '强烈建议提价'
-    if (rate >= .55) return '建议提价'
-    if (rate >= .4) return '建议小幅提价'
-    if (rate >= .25) return '建议小幅提价'
-    if (rate >= .15) return '渠道补量'
-    return '不建议提价'
-  }
-  if (dayOffset === 'D2') {
-    if (rate >= .6) return '强烈建议提价'
-    if (rate >= .45) return '建议提价'
-    if (rate >= .35) return '建议小幅提价'
-    if (rate >= .25) return '保持观察'
-    if (rate >= .15) return '渠道补量'
-    return '不建议提价'
-  }
-  if (dayOffset === 'D3') {
-    if (rate >= topThreshold) return '阶梯式提价'
-    if (rate >= .25) return '建议小幅提价'
-    if (rate >= .15) return '保持观察'
-    return '不建议提价'
-  }
-  if (dayOffset === 'D4') {
-    if (rate >= topThreshold) return '建议小幅提价'
-    if (rate >= .2) return '保持观察'
-    if (rate >= .1) return '渠道补量'
-    return '不建议提价'
-  }
-  if (rate >= topThreshold) return '提前提价机会'
-  if (rate >= .15) return '保持观察'
-  if (rate >= .08) return '渠道预热'
-  return '流量预警'
+const actionByDay = (dayOffset: string, rate: number): PriceAdviceLabel => {
+  const [strong, raise, stair, observe] = dayThresholds(dayOffset)
+  if (rate >= strong) return '强烈建议提价'
+  if (rate >= raise) return '建议提价'
+  if (rate >= stair) return '阶梯式提价'
+  if (rate >= observe) return '保持观察'
+  return '渠道补量'
 }
-
-const activationFloor = (dayOffset: string) => dayOffset === 'D0' ? .2
-  : dayOffset === 'D1' || dayOffset === 'D2' || dayOffset === 'D3' ? .15
-    : dayOffset === 'D4' ? .1 : .08
 
 export function buildPriceAdvice(row: MetricRow, context: PriceAdviceContext, settings?: Partial<PriceAdviceSettings>): PriceAdvice {
   const config = { ...DEFAULT_PRICE_ADVICE_SETTINGS, ...settings, minBookingRateByDay: { ...DEFAULT_PRICE_ADVICE_SETTINGS.minBookingRateByDay, ...settings?.minBookingRateByDay } }
@@ -152,10 +121,7 @@ export function buildPriceAdvice(row: MetricRow, context: PriceAdviceContext, se
   const zoneBookingRateChange = context.zoneBookingRateChange ?? null
   const zoneBookedChange = context.zoneBookedChange ?? null
   const rateRising = bookingRateChange != null && bookingRateChange > config.stablePp && (bookedChange == null || bookedChange > 0)
-  const rateFalling = bookingRateChange != null && bookingRateChange < -config.stablePp
-  const adrRising = adrChange != null && adrChange > config.stableAdrAmount
   const adrFalling = adrChange != null && adrChange < -config.stableAdrAmount
-  const zoneWarming = zoneBookingRateChange != null && zoneBookingRateChange > config.stablePp && (zoneBookedChange == null || zoneBookedChange > 0)
   const quantityPriceStatus = bookingRateChange == null || adrChange == null ? '无可比'
     : Math.abs(bookingRateChange) <= config.stablePp && Math.abs(adrChange) <= config.stableAdrAmount ? '基本稳定'
       : bookingRateChange >= 0 && adrChange >= 0 ? '量价双升'
@@ -169,7 +135,12 @@ export function buildPriceAdvice(row: MetricRow, context: PriceAdviceContext, se
   const remainingRooms = Math.max(0, row.availableRooms - row.bookedRooms)
   const remainingRate = row.availableRooms ? remainingRooms / row.availableRooms : null
   const zoneType = specialZoneType(row)
-  const sampleNote = `预订间夜${row.bookedRooms}，有价间夜${row.pricedRooms}，商圈可比门店${context.zoneStoreCount}家${zoneType ? `，${zoneType}` : ''}`
+  const zoneSampleNote = !row.revenueZone || context.zoneBookingRate == null || context.zoneAdr == null
+    ? '，商圈对标暂不可用'
+    : context.zoneStoreCount < config.minZoneStores
+      ? `，商圈样本不足（${context.zoneStoreCount}家）`
+      : `，商圈可比门店${context.zoneStoreCount}家`
+  const sampleNote = `预订间夜${row.bookedRooms}，有价间夜${row.pricedRooms}${zoneSampleNote}${zoneType ? `，${zoneType}` : ''}`
   const result = (label: PriceAdviceLabel, reason: string): PriceAdvice => ({
     label, reason, quantityPriceStatus, threshold, zoneBookingRate: context.zoneBookingRate, zoneAdr: context.zoneAdr,
     zoneLastOcc: context.zoneLastOcc, zoneLastAdr: context.zoneLastAdr, storeOccRecovery, zoneOccRecovery, zoneBookingGap,
@@ -177,17 +148,14 @@ export function buildPriceAdvice(row: MetricRow, context: PriceAdviceContext, se
     zoneBookingRateChange, zoneBookedChange, specialZoneType: zoneType, sampleNote,
   })
 
-  if (!row.revenueZone || context.zoneBookingRate == null || context.zoneAdr == null) {
-    return result('商圈未配置，无法判断', '缺少有效收益管理商圈，无法判断商圈量价对标')
-  }
-  const highBookingPriority = isHighBookingPriority(row)
-  const lowCurrentSample = row.bookedRooms < config.minBookedRooms || row.pricedRooms < config.minPricedRooms
-  if (row.bookingRate == null || row.adr == null || (!highBookingPriority && (lowCurrentSample || context.zoneStoreCount < config.minZoneStores))) {
-    return result('样本不足', '预订样本不足，暂不生成强动作建议')
-  }
+  const hasValidOtb = row.availableRooms > 0 && row.bookingRate != null && Number.isFinite(row.bookingRate)
+  if (!hasValidOtb) return result('样本不足', '当前无有效可售房或OTB无法计算，暂不生成价格动作建议')
 
-  const highVsZone = zoneAdrGap != null && (zoneAdrGap >= config.highAdrAmount || row.adr >= context.zoneAdr * (1 + config.highAdrRate))
-  const highVsLast = lastAdrGap != null && row.lastAdr != null && (lastAdrGap >= config.highAdrAmount || row.adr >= row.lastAdr * (1 + config.highAdrRate))
+  const highBookingPriority = isHighBookingPriority(row)
+  const highVsZone = zoneAdrGap != null && context.zoneAdr != null && row.adr != null &&
+    (zoneAdrGap >= config.highAdrAmount || row.adr >= context.zoneAdr * (1 + config.highAdrRate))
+  const highVsLast = lastAdrGap != null && row.lastAdr != null && row.adr != null &&
+    (lastAdrGap >= config.highAdrAmount || row.adr >= row.lastAdr * (1 + config.highAdrRate))
   const weakSpeed = bookingRateChange != null && bookingRateChange <= config.stablePp && (bookedChange == null || bookedChange <= 0)
   const clearlyBelowZone = zoneBookingGap != null && zoneBookingGap <= -.05
   if (!highBookingPriority && (highVsZone || highVsLast) && clearlyBelowZone && weakSpeed) {
@@ -195,51 +163,29 @@ export function buildPriceAdvice(row: MetricRow, context: PriceAdviceContext, se
   }
   const lowVsZone = zoneAdrGap != null && zoneAdrGap < 0
   const lowVsLast = lastAdrGap != null && lastAdrGap < 0
-  if (!highBookingPriority && ((rateRising && adrFalling) || lowVsZone || lowVsLast)) {
+  if (!highBookingPriority && rateRising && adrFalling && (lowVsZone || lowVsLast)) {
     return result('高量低价风险', `OTB${rateRising ? '提升' : '有基础'}但ADR偏低，关注收益质量`)
   }
 
-  const adrSpace = !highVsZone && !highVsLast
-  const historicalSpace = (storeOccRecovery != null && storeOccRecovery < 0) || (zoneOccRecovery != null && zoneOccRecovery < 0)
-  let action = actionByDay(row.dayOffset, row.bookingRate, threshold)
-  const canActivate = row.bookingRate >= activationFloor(row.dayOffset) && rateRising && zoneWarming && adrSpace
-  if (canActivate && (historicalSpace || zoneType)) {
-    if (row.dayOffset === 'D5' || row.dayOffset === 'D6') action = '提前提价机会'
-    else if (action === '保持观察' || action === '渠道补量' || action === '不建议提价') action = '阶梯式提价'
-  } else if (rateRising && zoneWarming && action === '渠道补量') {
-    action = '保持观察'
-  } else if (rateRising && action === '不建议提价' && row.bookingRate >= activationFloor(row.dayOffset)) {
-    action = '保持观察'
-  }
+  const action = actionByDay(row.dayOffset, row.bookingRate as number)
 
   if (action === '强烈建议提价') {
     return result(action, row.dayOffset === 'D0'
-      ? `OTB ${fmtPct(row.bookingRate)}，临近满房，核实库存并关闭低价房型`
-      : `OTB ${fmtPct(row.bookingRate)}，价格承接良好，结合库存提价并控制OTA低价房`)
+      ? '检查是否存在异常控房；如为真实预订，尽早核实到店并精准控量，关闭低价房型，提升剩余库存价格'
+      : `OTB ${fmtPct(row.bookingRate)}，处于${row.dayOffset}高位，核实库存后提价并控制OTA低价房`)
   }
   if (action === '建议提价') {
-    return result(action, `OTB ${fmtPct(row.bookingRate)}，${(zoneBookingGap || 0) >= 0 ? `高于商圈${fmtPp(zoneBookingGap)}` : '预订承接良好'}，结合竞对价库阶梯提价`)
-  }
-  if (action === '建议小幅提价') {
-    return result(action, `OTB ${fmtPct(row.bookingRate)}，${rateRising ? `较上版${fmtPp(bookingRateChange)}` : '已有预订基础'}，观察进速并小幅试探提价`)
+    return result(action, row.dayOffset === 'D0'
+      ? '检查是否存在异常控房；如为真实预订，结合实际库存和竞对价库确定提价幅度，争取跑赢竞对'
+      : `OTB ${fmtPct(row.bookingRate)}，已有提价基础，结合库存和竞对价库阶梯提价`)
   }
   if (action === '阶梯式提价') {
-    return result(action, `OTB ${fmtPct(row.bookingRate)}，${rateRising ? `较上版${fmtPp(bookingRateChange)}` : '预订基础改善'}，进速加快可阶梯提价`)
+    return result(action, row.dayOffset === 'D0'
+      ? '检查是否存在异常控房；如为真实预订，结合实际库存阶梯式提价，并随流量增速持续上调'
+      : `OTB ${fmtPct(row.bookingRate)}，关注订单进速，结合库存灵活阶梯式提价`)
   }
-  if (action === '提前提价机会') {
-    return result(action, `OTB ${fmtPct(row.bookingRate)}，远端已有需求基础，提前观察提价机会`)
+  if (action === '保持观察') {
+    return result(action, `OTB ${fmtPct(row.bookingRate)}，关注订单进速和商圈热度，结合竞对价格、渠道展示和库存结构小幅试探或补量`)
   }
-  if (action === '渠道补量') {
-    return result(action, `OTB ${fmtPct(row.bookingRate)}，预订基础偏弱，优先补充渠道流量`)
-  }
-  if (action === '渠道预热') {
-    return result(action, `OTB ${fmtPct(row.bookingRate)}，远端需求尚在形成，提前做好渠道预热`)
-  }
-  if (action === '流量预警') {
-    return result(action, `OTB ${fmtPct(row.bookingRate)}，远端基数偏低，关注渠道曝光与转化`)
-  }
-  if (action === '不建议提价') {
-    return result(action, `OTB ${fmtPct(row.bookingRate)}，预订基础不足，优先修复渠道流量`)
-  }
-  return result('保持观察', `OTB ${fmtPct(row.bookingRate)}，${zoneWarming ? '商圈同步升温' : rateRising ? '进速有所改善' : '当前变化有限'}，观察下一跑批`)
+  return result('渠道补量', '了解城市和商圈流量热度，检查渠道展示、价格竞争力和产品触达，可报名活动引流并铺排协议、团队客源')
 }

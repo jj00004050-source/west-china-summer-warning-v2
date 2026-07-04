@@ -5,7 +5,7 @@ import { aggregate } from '../utils/metrics'
 import { analyzeStore, buildStoreChannelMix, EMPTY_STORE_MIX } from '../utils/storeAnomalies'
 import { matchesRenovationFilter, matchesStoreType, storeTypeProfile, type RenovationFilter, type StoreTypeFilter } from '../utils/storeTypes'
 import { fmtMoney, fmtPct, fmtPp } from '../utils/formatter'
-import { buildPriceAdvice, isHighBookingPriority } from '../utils/priceAdvice'
+import { buildPriceAdvice } from '../utils/priceAdvice'
 
 const FILTERS: StoreTypeFilter[] = ['全部门店','直营店','新开店','非新开存量店']
 const MISSING_OPENING_DATE = '开业日期缺失'
@@ -85,9 +85,7 @@ export default function StoreSpecialtyPanel({ rows, comparisonRows, channelRows,
   const profiles = selected.map(storeTypeProfile)
   const specialtyLabel = renovationFilter !== '全部' ? renovationFilter : value
   const selectedAdvice = selected.map(row => {
-    const staleHighBookingInsight = row.precomputedStoreInsight && isHighBookingPriority(row) &&
-      ['样本不足', '价格偏高风险', '高量低价风险'].includes(row.precomputedStoreInsight.priceAdvice.label)
-    if (row.precomputedStoreInsight && !staleHighBookingInsight) {
+    if (row.precomputedStoreInsight?.logicVersion === 2) {
       return {
         row,
         zone: row.revenueZone ? zoneMetrics[row.revenueZone] : undefined,

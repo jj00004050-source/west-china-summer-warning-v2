@@ -74,6 +74,7 @@ export function buildStoreInsights(
       priceAdvice.label === '价格偏高风险' ? '改造店价格偏高风险' : '',
     ].filter(Boolean) : []
     result[row.whCode] = {
+      logicVersion: 2,
       zoneRate,
       zoneGap,
       mix,

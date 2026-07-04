@@ -21,6 +21,7 @@ import ChannelDrilldownView from './components/ChannelDrilldownView'
 import AdminDashboard from './components/AdminDashboard'
 import { RiskHeatmap, type DiagnosticDay } from './components/DiagnosticCharts'
 import { matchesRenovationFilter, matchesStoreType, type RenovationFilter, type StoreTypeFilter } from './utils/storeTypes'
+import { matchesBookingRateRange, type BookingRateRange } from './utils/bookingRateRanges'
 
 const ALL = '全部'
 const MISSING_OPENING_DATE = '开业日期缺失'
@@ -44,6 +45,7 @@ export default function App() {
   const [storeTypeFilter, setStoreTypeFilter] = useState<StoreTypeFilter>('全部门店')
   const [renovationFilter, setRenovationFilter] = useState<RenovationFilter>('全部')
   const [openingAgeFilter, setOpeningAgeFilter] = useState<string[]>([])
+  const [bookingRateRanges, setBookingRateRanges] = useState<BookingRateRange[]>([])
   const [showMethodology, setShowMethodology] = useState(false)
   const reload = async () => {
     try { const d = await fetchData(); setData(d); setFilters(f => ({ ...f, batchId: d.batches.at(-1)?.id || '' })); setLoadError('') }
@@ -197,7 +199,8 @@ export default function App() {
   const openingAgeOptions = [...new Set(unfilteredRows.map(row => openingAgeOption(row.openDate, targetDate)))]
     .sort((a, b) => a === MISSING_OPENING_DATE ? -1 : b === MISSING_OPENING_DATE ? 1 : Number(a.replace('年', '')) - Number(b.replace('年', '')))
   const openingAgeFilteredStoreRows = rows
-  const typeFilteredStoreRows = openingAgeFilteredStoreRows.filter(row => matchesStoreType(row, storeTypeFilter) && matchesRenovationFilter(row, renovationFilter))
+  const bookingRateFilteredStoreRows = openingAgeFilteredStoreRows.filter(row => matchesBookingRateRange(row.bookingRate, bookingRateRanges))
+  const typeFilteredStoreRows = bookingRateFilteredStoreRows.filter(row => matchesStoreType(row, storeTypeFilter) && matchesRenovationFilter(row, renovationFilter))
   const typeFilteredCodes = new Set(typeFilteredStoreRows.map(row => row.whCode))
   const typeFilteredChannelRows = channelRows.filter(row => typeFilteredCodes.has(row.whCode))
   const typeFilteredPreviousChannelRows = previousChannelRows.filter(row => typeFilteredCodes.has(row.whCode))
@@ -225,7 +228,7 @@ export default function App() {
   const viewContent = view === 'overview' ? <><div className="light-middle">{map}{channel}</div><RiskHeatmap days={diagnosticDays} level="province" title="省区 D0-D6 变化监控热力图" batch={selected?.batchTime || '--'} comparisonLabel={comparisonLabel} onSelect={(province, dayOffset) => drillProvince(province, dayOffset)}/><ProvinceOverview rows={rows} comparisonRows={comparisonRows} sameLeadRows={sameLeadRows} channelRows={channelRows} countMissingAsZero={countMissingAsZero} onSelect={province => drillProvince(province)}/></>
     : view === 'province' ? <div className="view-stack">{map}<ProvinceCityMatrix rows={rows} comparisonRows={comparisonRows} sameLeadRows={sameLeadRows} channelRows={channelRows} onCity={city => setFilters(f => ({ ...f, city, district: ALL, revenueZone: ALL, store: ALL }))}/></div>
     : view === 'area' ? <div className="view-stack">{areaBreadcrumb}<AreaRevenueZoneMatrix rows={rows} comparisonRows={comparisonRows} sameLeadRows={sameLeadRows} channelRows={channelRows} onRevenueZone={revenueZone => drillZone(revenueZone)}/></div>
-    : view === 'store' ? <div className="view-stack">{areaBreadcrumb}<StoreSpecialtyPanel rows={openingAgeFilteredStoreRows} comparisonRows={comparisonRows} channelRows={channelRows} value={storeTypeFilter} renovationFilter={renovationFilter} openingAgeOptions={openingAgeOptions} openingAgeFilter={openingAgeFilter} priceSettings={data.settings?.priceAdvice} onChange={next => { setStoreTypeFilter(next); setRenovationFilter('全部') }} onRenovationChange={next => { setRenovationFilter(next); setStoreTypeFilter('全部门店') }} onOpeningAgeChange={setOpeningAgeFilter}/><StoreChannelComposition stores={typeFilteredStoreRows} store={typedFocusedStore} rows={typedFocusedStore ? typeFilteredChannelRows.filter(row => row.whCode === typedFocusedStore.whCode) : []} previousRows={typedFocusedStore ? typeFilteredPreviousChannelRows.filter(row => row.whCode === typedFocusedStore.whCode) : []} comparisonLabel={comparisonLabel} onDetail={setSelectedStore}/><StoreWarningTable rows={typeFilteredStoreRows} benchmarkRows={rows} comparisonRows={comparisonRows} channelRows={typeFilteredChannelRows} comparisonLabel={comparisonLabel} priceSettings={data.settings?.priceAdvice} storeTypeFilter={storeTypeFilter} renovationFilter={renovationFilter} onStore={store => { setFocusedStoreCode(store.whCode); setSelectedStore(store) }}/></div>
+    : view === 'store' ? <div className="view-stack">{areaBreadcrumb}<StoreSpecialtyPanel rows={bookingRateFilteredStoreRows} comparisonRows={comparisonRows} channelRows={channelRows} value={storeTypeFilter} renovationFilter={renovationFilter} openingAgeOptions={openingAgeOptions} openingAgeFilter={openingAgeFilter} priceSettings={data.settings?.priceAdvice} onChange={next => { setStoreTypeFilter(next); setRenovationFilter('全部') }} onRenovationChange={next => { setRenovationFilter(next); setStoreTypeFilter('全部门店') }} onOpeningAgeChange={setOpeningAgeFilter}/><StoreChannelComposition stores={typeFilteredStoreRows} store={typedFocusedStore} rows={typedFocusedStore ? typeFilteredChannelRows.filter(row => row.whCode === typedFocusedStore.whCode) : []} previousRows={typedFocusedStore ? typeFilteredPreviousChannelRows.filter(row => row.whCode === typedFocusedStore.whCode) : []} comparisonLabel={comparisonLabel} onDetail={setSelectedStore}/><StoreWarningTable rows={typeFilteredStoreRows} benchmarkRows={rows} comparisonRows={comparisonRows} channelRows={typeFilteredChannelRows} comparisonLabel={comparisonLabel} priceSettings={data.settings?.priceAdvice} storeTypeFilter={storeTypeFilter} renovationFilter={renovationFilter} bookingRateRanges={bookingRateRanges} onBookingRateRangesChange={setBookingRateRanges} onStore={store => { setFocusedStoreCode(store.whCode); setSelectedStore(store) }}/></div>
     : <div className="view-stack"><div className="channel-summary-notice">渠道视图使用上传时生成的轻量汇总数据，不下载渠道原始明细。</div><ChannelDrilldownView rows={typeFilteredChannelRows} previousRows={typeFilteredPreviousChannelRows} comparisonLabel={comparisonLabel}/></div>
   return <div className="light-app">
     <LightSidebar filters={filters} hotels={data.hotels} batches={data.batches} channels={channels} onChange={setFilters} onExport={exportView} view={view} onView={next => {

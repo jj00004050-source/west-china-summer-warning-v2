@@ -66,6 +66,7 @@ export interface SnapshotRecord {
 }
 
 export interface StorePrecomputedInsight {
+  logicVersion?: number
   zoneRate: number | null
   zoneGap: number | null
   mix: {

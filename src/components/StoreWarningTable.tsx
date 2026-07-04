@@ -9,6 +9,7 @@ import MetricTrendLines from './MetricTrendLines'
 import type { DistributionMetric } from '../utils/diagnostics'
 import { buildPriceAdvice, isHighBookingPriority, type PriceAdvice, type PriceAdviceLabel } from '../utils/priceAdvice'
 import { storeTypeProfile, type RenovationFilter, type StoreTypeFilter } from '../utils/storeTypes'
+import { BOOKING_RATE_RANGE_OPTIONS, type BookingRateRange } from '../utils/bookingRateRanges'
 import {
   analyzeStore,
   buildStoreChannelMix,
@@ -69,7 +70,7 @@ function ChannelDonut({ mix }: { mix: StoreChannelMix }) {
   </div>
 }
 
-export default function StoreWarningTable({ rows, benchmarkRows = rows, comparisonRows = [], channelRows, comparisonLabel = '较上一跑批', priceSettings, storeTypeFilter = '全部门店', renovationFilter = '全部', onStore, priorityCodes = [], highlightCode = '', initialDiagnosticSort = null }: {
+export default function StoreWarningTable({ rows, benchmarkRows = rows, comparisonRows = [], channelRows, comparisonLabel = '较上一跑批', priceSettings, storeTypeFilter = '全部门店', renovationFilter = '全部', bookingRateRanges, onBookingRateRangesChange, onStore, priorityCodes = [], highlightCode = '', initialDiagnosticSort = null }: {
   rows: MetricRow[]
   benchmarkRows?: MetricRow[]
   comparisonRows?: ComparisonRow[]
@@ -78,6 +79,8 @@ export default function StoreWarningTable({ rows, benchmarkRows = rows, comparis
   priceSettings?: Partial<PriceAdviceSettings>
   storeTypeFilter?: StoreTypeFilter
   renovationFilter?: RenovationFilter
+  bookingRateRanges: BookingRateRange[]
+  onBookingRateRangesChange: (value: BookingRateRange[]) => void
   onStore: (row: MetricRow) => void
   priorityCodes?: string[]
   highlightCode?: string
@@ -88,6 +91,8 @@ export default function StoreWarningTable({ rows, benchmarkRows = rows, comparis
   const [priceFilters, setPriceFilters] = useState<PriceAdviceLabel[]>([])
   const [priceFilterOpen, setPriceFilterOpen] = useState(false)
   const priceFilterRef = useRef<HTMLDivElement>(null)
+  const [bookingRateFilterOpen, setBookingRateFilterOpen] = useState(false)
+  const bookingRateFilterRef = useRef<HTMLDivElement>(null)
   const [sort, setSort] = useState<SortKey>('rpGap')
   const [asc, setAsc] = useState(true)
   const [page, setPage] = useState(1)
@@ -98,12 +103,16 @@ export default function StoreWarningTable({ rows, benchmarkRows = rows, comparis
     setSort(mapped[initialDiagnosticSort] || 'rpGap'); setAsc(true); setPage(1)
   }, [initialDiagnosticSort])
   useEffect(() => {
-    if (!priceFilterOpen) return
+    if (!priceFilterOpen && !bookingRateFilterOpen) return
     const close = (event: MouseEvent) => {
       if (!priceFilterRef.current?.contains(event.target as Node)) setPriceFilterOpen(false)
+      if (!bookingRateFilterRef.current?.contains(event.target as Node)) setBookingRateFilterOpen(false)
     }
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setPriceFilterOpen(false)
+      if (event.key === 'Escape') {
+        setPriceFilterOpen(false)
+        setBookingRateFilterOpen(false)
+      }
     }
     document.addEventListener('mousedown', close)
     document.addEventListener('keydown', closeOnEscape)
@@ -111,7 +120,7 @@ export default function StoreWarningTable({ rows, benchmarkRows = rows, comparis
       document.removeEventListener('mousedown', close)
       document.removeEventListener('keydown', closeOnEscape)
     }
-  }, [priceFilterOpen])
+  }, [priceFilterOpen, bookingRateFilterOpen])
 
   const zoneGroups = useMemo(() => benchmarkRows.reduce<Record<string, MetricRow[]>>((result, row) => {
     if (row.revenueZone) (result[row.revenueZone] ||= []).push(row)
@@ -131,9 +140,7 @@ export default function StoreWarningTable({ rows, benchmarkRows = rows, comparis
   })), [zoneGroups])
   const channelByHotel = useMemo(() => buildStoreChannelMix(channelRows), [channelRows])
   const enriched = useMemo<EnrichedStore[]>(() => rows.map(row => {
-    const staleHighBookingInsight = row.precomputedStoreInsight && isHighBookingPriority(row) &&
-      ['样本不足', '价格偏高风险', '高量低价风险'].includes(row.precomputedStoreInsight.priceAdvice.label)
-    if (row.precomputedStoreInsight && !staleHighBookingInsight) {
+    if (row.precomputedStoreInsight?.logicVersion === 2) {
       const insight = row.precomputedStoreInsight
       return {
         row,
@@ -194,6 +201,14 @@ export default function StoreWarningTable({ rows, benchmarkRows = rows, comparis
     (!query || `${item.row.name}${item.row.whCode}`.toLowerCase().includes(query.toLowerCase())) && matchesAnomaly(item) &&
     (!priceFilters.length || priceFilters.includes(item.priceAdvice.label))
   ).sort((a, b) => {
+    if (sort === 'bookingRate') {
+      const aRate = a.row.bookingRate
+      const bRate = b.row.bookingRate
+      if (aRate == null && bRate != null) return 1
+      if (aRate != null && bRate == null) return -1
+      const rateOrder = ((aRate ?? 0) - (bRate ?? 0)) * (asc ? 1 : -1)
+      if (rateOrder) return rateOrder
+    }
     const ap = priority.get(a.row.whCode), bp = priority.get(b.row.whCode)
     if (ap != null || bp != null) return (ap ?? Number.MAX_SAFE_INTEGER) - (bp ?? Number.MAX_SAFE_INTEGER)
     if (storeTypeFilter === '新开店' || storeTypeFilter === '直营店' || renovationFilter !== '全部') {
@@ -222,6 +237,12 @@ export default function StoreWarningTable({ rows, benchmarkRows = rows, comparis
   const chooseFilter = (value: string) => { setAnomalyFilter(value); setPage(1) }
   const togglePriceFilter = (value: PriceAdviceLabel) => {
     setPriceFilters(current => current.includes(value) ? current.filter(item => item !== value) : [...current, value])
+    setPage(1)
+  }
+  const toggleBookingRateRange = (value: BookingRateRange) => {
+    onBookingRateRangesChange(bookingRateRanges.includes(value)
+      ? bookingRateRanges.filter(item => item !== value)
+      : [...bookingRateRanges, value])
     setPage(1)
   }
   const exportRows = async () => {
@@ -256,8 +277,26 @@ export default function StoreWarningTable({ rows, benchmarkRows = rows, comparis
       <div className="panel-title compact"><div><span className="eyebrow">STORE EARLY WARNING</span><h2>门店预警明细 <em>{rows.length}</em>{filtered.length !== rows.length && <small>当前筛选 {filtered.length} 家</small>}</h2></div>
         <div className="table-tools"><label className="search"><Search size={14}/><input placeholder="搜索门店 / WH编码" value={query} onChange={event => { setQuery(event.target.value); setPage(1) }}/></label>
         <select value={anomalyFilter} onChange={event => chooseFilter(event.target.value)}>{anomalyOptions.map(value => <option key={value}>{value}</option>)}</select>
+        <div className={`booking-rate-multiselect ${bookingRateFilterOpen ? 'open' : ''}`} ref={bookingRateFilterRef}>
+          <button type="button" className="booking-rate-filter-trigger" aria-haspopup="listbox" aria-expanded={bookingRateFilterOpen} onClick={() => { setBookingRateFilterOpen(open => !open); setPriceFilterOpen(false) }}>
+            <span>{bookingRateRanges.length === 0 ? '预订率区间：全部' : bookingRateRanges.length === 1 ? `预订率区间：${bookingRateRanges[0]}` : `预订率区间：已选${bookingRateRanges.length}项`}</span>
+            <ChevronDown size={14}/>
+          </button>
+          {bookingRateFilterOpen && <div className="booking-rate-filter-menu" role="listbox" aria-multiselectable="true">
+            <button type="button" className={`booking-rate-filter-option all ${bookingRateRanges.length === 0 ? 'selected' : ''}`} onClick={() => { onBookingRateRangesChange([]); setPage(1) }}>
+              <i>{bookingRateRanges.length === 0 && <Check size={11}/>}</i><span>全部</span><small>清空选择</small>
+            </button>
+            <div className="booking-rate-filter-divider"/>
+            {BOOKING_RATE_RANGE_OPTIONS.map(value => {
+              const selected = bookingRateRanges.includes(value)
+              return <button type="button" role="option" aria-selected={selected} className={`booking-rate-filter-option ${selected ? 'selected' : ''}`} key={value} onClick={() => toggleBookingRateRange(value)}>
+                <i>{selected && <Check size={11}/>}</i><span>{value}</span>
+              </button>
+            })}
+          </div>}
+        </div>
         <div className={`price-advice-multiselect ${priceFilterOpen ? 'open' : ''}`} ref={priceFilterRef}>
-          <button type="button" className="price-advice-filter-trigger" aria-haspopup="listbox" aria-expanded={priceFilterOpen} onClick={() => setPriceFilterOpen(open => !open)}>
+          <button type="button" className="price-advice-filter-trigger" aria-haspopup="listbox" aria-expanded={priceFilterOpen} onClick={() => { setPriceFilterOpen(open => !open); setBookingRateFilterOpen(false) }}>
             <span>{priceFilters.length === 0 ? '全部提价建议' : priceFilters.length === 1 ? priceFilters[0] : `已选 ${priceFilters.length} 项`}</span>
             <ChevronDown size={14}/>
           </button>
@@ -282,7 +321,8 @@ export default function StoreWarningTable({ rows, benchmarkRows = rows, comparis
         <div>
           <p><b>异常门店：</b>至少命中一项经营异常标签，包括0预定、低预订率、低于商圈、RP缺口大、预订率或ADR下降、量价双降、OTA偏高或线上直销偏低等。</p>
           <p><b>高风险门店：</b>异常门店中触发近端严重条件的S级门店，重点包括D0-D1零预定、D0-D2低预订且进速弱、明显落后升温商圈、价格压制转化、近端量价双降，以及直营店渠道结构严重失衡。</p>
-          <p><b>高预订率保护：</b>D0预订率达到50%、D1达到40%、D2达到35%且预订、房量和ADR有效时，优先识别为提价机会；不会仅因ADR较高或样本门店数较少判为价格偏高风险或样本不足。</p>
+          <p><b>OTB建议优先：</b>只要可售房有效且OTB可计算，就按D0-D6分层输出价格动作；商圈样本不足只作辅助说明，不覆盖门店主建议。</p>
+          <p><b>高预订率保护：</b>D0预订率达到50%、D1达到45%、D2达到38%且预订、房量和ADR有效时，优先识别为提价机会；不会仅因ADR较高判为价格偏高风险。</p>
           <p><b>不直接算异常：</b>无同期、新开无可比、商圈未配置、开业日期缺失等属于口径状态；数据待核验属于数据治理提示。</p>
         </div>
       </details>

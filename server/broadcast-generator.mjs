@@ -338,25 +338,28 @@ export function generateBroadcastPackage(data, request = {}) {
     highAdrRate: data.settings?.priceAdvice?.highAdrRate ?? .1,
     lowAdrAmount: data.settings?.priceAdvice?.lowAdrAmount ?? 20,
     lowAdrRate: data.settings?.priceAdvice?.lowAdrRate ?? .1,
-    minBookedRooms: data.settings?.priceAdvice?.minBookedRooms ?? 5,
-    minPricedRooms: data.settings?.priceAdvice?.minPricedRooms ?? 5,
   }
   const basePriceAction = row => {
     const value = row.bookingRate
     if (value == null) return '样本不足'
-    if (row.dayOffset === 'D0') return value >= .8 ? '强烈建议提价' : value >= .7 ? '建议提价' : value >= .5 ? '建议小幅提价' : value >= .3 ? '阶梯式提价' : value >= .2 ? '保持观察' : '不建议提价'
-    if (row.dayOffset === 'D1') return value >= .7 ? '强烈建议提价' : value >= .55 ? '建议提价' : value >= .4 ? '建议小幅提价' : value >= .25 ? '建议小幅提价' : value >= .15 ? '渠道补量' : '不建议提价'
-    if (row.dayOffset === 'D2') return value >= .6 ? '强烈建议提价' : value >= .45 ? '建议提价' : value >= .35 ? '建议小幅提价' : value >= .25 ? '保持观察' : value >= .15 ? '渠道补量' : '不建议提价'
-    if (row.dayOffset === 'D3') return value >= .35 ? '阶梯式提价' : value >= .25 ? '建议小幅提价' : value >= .15 ? '保持观察' : '不建议提价'
-    if (row.dayOffset === 'D4') return value >= .3 ? '建议小幅提价' : value >= .2 ? '保持观察' : value >= .1 ? '渠道补量' : '不建议提价'
-    return value >= .25 ? '提前提价机会' : value >= .15 ? '保持观察' : value >= .08 ? '渠道预热' : '流量预警'
+    const thresholds = row.dayOffset === 'D0' ? [.7, .5, .3, .2]
+      : row.dayOffset === 'D1' ? [.6, .45, .28, .18]
+        : row.dayOffset === 'D2' ? [.5, .38, .25, .15]
+          : row.dayOffset === 'D3' ? [.42, .32, .22, .12]
+            : row.dayOffset === 'D4' ? [.35, .28, .18, .1]
+              : row.dayOffset === 'D5' ? [.3, .24, .15, .08] : [.25, .2, .12, .06]
+    return value >= thresholds[0] ? '强烈建议提价'
+      : value >= thresholds[1] ? '建议提价'
+        : value >= thresholds[2] ? '阶梯式提价'
+          : value >= thresholds[3] ? '保持观察' : '渠道补量'
   }
   const priceAdvice = row => {
     const zone = row.revenueZone ? zoneByName.get(row.revenueZone) : null
-    if (!zone || zone.bookingRate == null || zone.adr == null) return '商圈未配置，无法判断'
-    const highBookingFloor = row.dayOffset === 'D0' ? .5 : row.dayOffset === 'D1' ? .4 : row.dayOffset === 'D2' || row.dayOffset === 'D3' ? .35 : row.dayOffset === 'D4' ? .3 : .25
+    if (row.availableRooms <= 0 || row.bookingRate == null || !Number.isFinite(row.bookingRate)) return '样本不足'
+    const action = basePriceAction(row)
+    if (!zone || zone.bookingRate == null || zone.adr == null || row.adr == null) return action
+    const highBookingFloor = row.dayOffset === 'D0' ? .5 : row.dayOffset === 'D1' ? .45 : row.dayOffset === 'D2' ? .38 : row.dayOffset === 'D3' ? .32 : row.dayOffset === 'D4' ? .28 : row.dayOffset === 'D5' ? .24 : .2
     const highBookingPriority = row.bookingRate != null && row.bookingRate >= highBookingFloor && row.availableRooms > 0 && row.bookedRooms > 0 && row.pricedRooms > 0 && row.adr != null && row.adr > 0
-    if (row.bookingRate == null || row.adr == null || (!highBookingPriority && (row.bookedRooms < priceConfig.minBookedRooms || row.pricedRooms < priceConfig.minPricedRooms))) return '样本不足'
     const zoneRateGap = row.bookingRate - zone.bookingRate
     const zoneAdrGap = row.adr - zone.adr
     const highPrice = zoneAdrGap >= priceConfig.highAdrAmount || row.adr >= zone.adr * (1 + priceConfig.highAdrRate)
@@ -364,8 +367,6 @@ export function generateBroadcastPackage(data, request = {}) {
     const weakSpeed = row.bookingRateChange != null && row.bookingRateChange <= 0 && (row.bookedChange == null || row.bookedChange <= 0)
     if (!highBookingPriority && highPrice && zoneRateGap <= -.05 && weakSpeed) return '价格偏高风险'
     if (!highBookingPriority && (row.bookingRateChange || 0) > 0 && (row.adrChange || 0) < -10 && lowPrice) return '高量低价风险'
-    const action = basePriceAction(row)
-    if (zoneRateGap <= -.1 && (row.bookingRateChange == null || row.bookingRateChange <= 0) && ['强烈建议提价', '建议提价', '建议小幅提价', '阶梯式提价'].includes(action)) return '保持观察'
     return action
   }
   storeRows.forEach(row => {
@@ -442,7 +443,7 @@ export function generateBroadcastPackage(data, request = {}) {
     const zoneWarming = (row.zoneBookingRateChange || 0) > 0
     const zoneNotWeak = row.zoneBookingRate != null && row.zoneBookingRate >= (near ? .2 : .15)
     const newWithoutComparison = row.openMonths != null && row.openMonths <= 18 && !row.last
-    const highBookingFloor = row.dayOffset === 'D0' ? .5 : row.dayOffset === 'D1' ? .4 : row.dayOffset === 'D2' || row.dayOffset === 'D3' ? .35 : row.dayOffset === 'D4' ? .3 : .25
+    const highBookingFloor = row.dayOffset === 'D0' ? .5 : row.dayOffset === 'D1' ? .45 : row.dayOffset === 'D2' ? .38 : row.dayOffset === 'D3' ? .32 : row.dayOffset === 'D4' ? .28 : row.dayOffset === 'D5' ? .24 : .2
     const highBookingPriority = row.bookingRate != null && row.bookingRate >= highBookingFloor && row.availableRooms > 0 && row.bookedRooms > 0 && row.pricedRooms > 0 && row.adr != null && row.adr > 0
     const zeroNear = near && !row.missing && row.bookedRooms === 0 && !newWithoutComparison
     const lowZoneWeak = near && nearLow && row.zoneGap != null && row.zoneGap < 0 && weakSpeed
