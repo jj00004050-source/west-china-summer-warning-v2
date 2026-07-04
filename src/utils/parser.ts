@@ -155,7 +155,7 @@ export function normalizeRows(rows: Record<string, unknown>[], kind: DataKind, m
   return rows.map(r => {
     const availableRooms = num(val(r, map, 'availableRooms'))
     const bookedRooms = num(val(r, map, 'bookedRooms'))
-    const pricedRooms = num(val(r, map, 'pricedRooms')) || bookedRooms
+    const pricedRooms = map.pricedRooms ? num(val(r, map, 'pricedRooms')) : bookedRooms
     const bookingRevenue = num(val(r, map, 'bookingRevenue'))
     const bookingRate = map.bookingRate ? ratio(val(r, map, 'bookingRate')) : (availableRooms ? bookedRooms / availableRooms : undefined)
     const onHandAdr = map.onHandAdr ? num(val(r, map, 'onHandAdr')) : (pricedRooms ? bookingRevenue / pricedRooms : undefined)
@@ -220,8 +220,8 @@ export function validateRows(rows: Array<Hotel | LastYearRecord | SnapshotRecord
     if (kind === 'sameLeadSnapshots') {
       const sameLead = r as SameLeadSnapshotRecord
       if (!validDate(sameLead.date)) issues.push({ level: 'warning', row: i + 2, field: '年月日', message: '该行年月日无法识别，保存时将跳过' })
-      if (sameLead.availableRooms <= 0) issues.push({ level: 'warning', row: i + 2, field: '可售房间数', message: '可售房为空或为0，同提前期预订率和理论RP将安全显示为 --' })
-      if (sameLead.pricedRooms <= 0 && sameLead.bookedRooms > 0) issues.push({ level: 'warning', row: i + 2, field: '有房价的预订房间数', message: '有房价预订房间数为空或为0，同提前期ADR将显示为 --' })
+      if (sameLead.availableRooms <= 0) issues.push({ level: 'warning', row: i + 2, field: '可售房间数', message: '可售房为空或为0，同期开盘预订率和理论RP将安全显示为 --' })
+      if (sameLead.pricedRooms <= 0 && sameLead.bookedRooms > 0) issues.push({ level: 'warning', row: i + 2, field: '有房价的预订房间数', message: '有房价预订房间数为空或为0，同期开盘ADR将显示为 --' })
       if (sameLead.bookingRevenue < 0) issues.push({ level: 'warning', row: i + 2, field: '预订总价', message: '预订总价小于0，请核验历史快照' })
     }
     if (kind === 'renovations') {

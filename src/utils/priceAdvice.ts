@@ -80,23 +80,40 @@ const specialZoneType = (row: MetricRow) => {
   return ''
 }
 
+export const highBookingOpportunityFloor = (dayOffset: string) => dayOffset === 'D0' ? .5
+  : dayOffset === 'D1' ? .4
+    : dayOffset === 'D2' || dayOffset === 'D3' ? .35
+      : dayOffset === 'D4' ? .3 : .25
+
+export const isHighBookingPriority = (row: MetricRow) =>
+  row.bookingRate != null &&
+  row.bookingRate >= highBookingOpportunityFloor(row.dayOffset) &&
+  row.availableRooms > 0 &&
+  row.bookedRooms > 0 &&
+  row.pricedRooms > 0 &&
+  row.adr != null &&
+  row.adr > 0
+
 const actionByDay = (dayOffset: string, rate: number, topThreshold: number): PriceAdviceLabel => {
   if (dayOffset === 'D0') {
-    if (rate >= topThreshold) return '强烈建议提价'
-    if (rate >= .5) return '建议提价'
+    if (rate >= .8) return '强烈建议提价'
+    if (rate >= .7) return '建议提价'
+    if (rate >= .5) return '建议小幅提价'
     if (rate >= .3) return '阶梯式提价'
     if (rate >= .2) return '保持观察'
     return '不建议提价'
   }
   if (dayOffset === 'D1') {
-    if (rate >= topThreshold) return '强烈建议提价'
-    if (rate >= .4) return '建议提价'
+    if (rate >= .7) return '强烈建议提价'
+    if (rate >= .55) return '建议提价'
+    if (rate >= .4) return '建议小幅提价'
     if (rate >= .25) return '建议小幅提价'
     if (rate >= .15) return '渠道补量'
     return '不建议提价'
   }
   if (dayOffset === 'D2') {
-    if (rate >= topThreshold) return '强烈建议提价'
+    if (rate >= .6) return '强烈建议提价'
+    if (rate >= .45) return '建议提价'
     if (rate >= .35) return '建议小幅提价'
     if (rate >= .25) return '保持观察'
     if (rate >= .15) return '渠道补量'
@@ -163,19 +180,22 @@ export function buildPriceAdvice(row: MetricRow, context: PriceAdviceContext, se
   if (!row.revenueZone || context.zoneBookingRate == null || context.zoneAdr == null) {
     return result('商圈未配置，无法判断', '缺少有效收益管理商圈，无法判断商圈量价对标')
   }
+  const highBookingPriority = isHighBookingPriority(row)
   const lowCurrentSample = row.bookedRooms < config.minBookedRooms || row.pricedRooms < config.minPricedRooms
-  if (row.bookingRate == null || row.adr == null || lowCurrentSample || context.zoneStoreCount < config.minZoneStores) {
+  if (row.bookingRate == null || row.adr == null || (!highBookingPriority && (lowCurrentSample || context.zoneStoreCount < config.minZoneStores))) {
     return result('样本不足', '预订样本不足，暂不生成强动作建议')
   }
 
   const highVsZone = zoneAdrGap != null && (zoneAdrGap >= config.highAdrAmount || row.adr >= context.zoneAdr * (1 + config.highAdrRate))
   const highVsLast = lastAdrGap != null && row.lastAdr != null && (lastAdrGap >= config.highAdrAmount || row.adr >= row.lastAdr * (1 + config.highAdrRate))
-  if (highVsZone || highVsLast || (adrRising && rateFalling) || ((zoneBookingGap || 0) < 0 && (zoneAdrGap || 0) > 0)) {
+  const weakSpeed = bookingRateChange != null && bookingRateChange <= config.stablePp && (bookedChange == null || bookedChange <= 0)
+  const clearlyBelowZone = zoneBookingGap != null && zoneBookingGap <= -.05
+  if (!highBookingPriority && (highVsZone || highVsLast) && clearlyBelowZone && weakSpeed) {
     return result('价格偏高风险', 'ADR高于商圈且预订表现偏弱，谨慎继续提价')
   }
   const lowVsZone = zoneAdrGap != null && zoneAdrGap < 0
   const lowVsLast = lastAdrGap != null && lastAdrGap < 0
-  if ((rateRising && adrFalling) || lowVsZone || lowVsLast) {
+  if (!highBookingPriority && ((rateRising && adrFalling) || lowVsZone || lowVsLast)) {
     return result('高量低价风险', `OTB${rateRising ? '提升' : '有基础'}但ADR偏低，关注收益质量`)
   }
 
@@ -194,14 +214,14 @@ export function buildPriceAdvice(row: MetricRow, context: PriceAdviceContext, se
 
   if (action === '强烈建议提价') {
     return result(action, row.dayOffset === 'D0'
-      ? `OTB ${fmtPct(row.bookingRate)}，剩余${remainingRooms}间，核实真实预订后精准控量`
-      : `OTB ${fmtPct(row.bookingRate)}，提价窗口明确，结合剩余库存精准控量`)
+      ? `OTB ${fmtPct(row.bookingRate)}，临近满房，核实库存并关闭低价房型`
+      : `OTB ${fmtPct(row.bookingRate)}，价格承接良好，结合库存提价并控制OTA低价房`)
   }
   if (action === '建议提价') {
-    return result(action, `OTB ${fmtPct(row.bookingRate)}，${(zoneBookingGap || 0) >= 0 ? `高于商圈${fmtPp(zoneBookingGap)}` : '订单基础较好'}，结合竞对价库提价`)
+    return result(action, `OTB ${fmtPct(row.bookingRate)}，${(zoneBookingGap || 0) >= 0 ? `高于商圈${fmtPp(zoneBookingGap)}` : '预订承接良好'}，结合竞对价库阶梯提价`)
   }
   if (action === '建议小幅提价') {
-    return result(action, `OTB ${fmtPct(row.bookingRate)}，${rateRising ? `较上版${fmtPp(bookingRateChange)}` : '具备价格空间'}，小幅试探提价`)
+    return result(action, `OTB ${fmtPct(row.bookingRate)}，${rateRising ? `较上版${fmtPp(bookingRateChange)}` : '已有预订基础'}，观察进速并小幅试探提价`)
   }
   if (action === '阶梯式提价') {
     return result(action, `OTB ${fmtPct(row.bookingRate)}，${rateRising ? `较上版${fmtPp(bookingRateChange)}` : '预订基础改善'}，进速加快可阶梯提价`)

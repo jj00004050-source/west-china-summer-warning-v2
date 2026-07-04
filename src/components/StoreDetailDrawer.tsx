@@ -6,7 +6,7 @@ import { fmtMoney, fmtPct, fmtPp } from '../utils/formatter'
 import { analyzeStore, buildStoreChannelMix, EMPTY_STORE_MIX, GRADE_LABEL } from '../utils/storeAnomalies'
 import { CHANNEL_COLORS } from '../utils/channels'
 import { storeTypeProfile } from '../utils/storeTypes'
-import { buildPriceAdvice, type PriceAdviceLabel } from '../utils/priceAdvice'
+import { buildPriceAdvice, isHighBookingPriority, type PriceAdviceLabel } from '../utils/priceAdvice'
 
 const PRICE_OPPORTUNITY_LABELS: PriceAdviceLabel[] = ['强烈建议提价','建议提价','建议小幅提价','阶梯式提价','提前提价机会']
 const priceAdviceTone = (label: PriceAdviceLabel) => label === '强烈建议提价' ? 'strong'
@@ -42,6 +42,13 @@ export default function StoreDetailDrawer({ store, allRows, comparisonRows, chan
     zoneBookingRateChange: zone.bookingRateChange,
     priceAdviceLabel: priceAdvice.label,
   })
+  const opportunityTags = isHighBookingPriority(store) ? [
+    '高预订率',
+    (store.bookingRate || 0) >= .8 ? '满房临近' : '',
+    PRICE_OPPORTUNITY_LABELS.includes(priceAdvice.label) ? '提价机会' : '',
+    store.adr != null ? '价格承接良好' : '',
+    (store.dayOffset === 'D0' || store.dayOffset === 'D1') && (store.bookingRate || 0) >= .8 ? '控房检查' : '',
+  ].filter(Boolean) : []
   const zoneGap = store.bookingRate != null && zone.bookingRate != null ? store.bookingRate - zone.bookingRate : null
   const renovationTags = store.isRenovated ? [
     ((store.bookingRate != null && zone.bookingRate != null && store.bookingRate < zone.bookingRate) || (store.bookingRate != null && store.lastOcc != null && store.bookingRate < store.lastOcc) || (store.bookingRate || 0) < priceAdvice.threshold) ? '改造店低预订' : '',
@@ -55,19 +62,19 @@ export default function StoreDetailDrawer({ store, allRows, comparisonRows, chan
   const offlineEnd = onlineEnd + mix.offline * 100
   const option = {
     tooltip: { trigger: 'axis', backgroundColor: '#fff', borderColor: '#bfd2e5', textStyle: { color: '#29445f' } },
-    legend: { data: ['理论RP', '同期同提前期RP', '同期最终RP'], textStyle: { color: '#71859a' } },
+    legend: { data: ['理论RP', '同期开盘RP', '同期最终RP'], textStyle: { color: '#71859a' } },
     grid: { left: 45, right: 18, top: 40, bottom: 28 },
     xAxis: { type: 'category', data: days, axisLine: { lineStyle: { color: '#dce6f0' } }, axisLabel: { color: '#71859a' } },
     yAxis: { type: 'value', splitLine: { lineStyle: { color: '#edf2f7' } }, axisLabel: { color: '#8294a7' } },
     series: [
       { name: '理论RP', type: 'line', smooth: true, data: mine.map(row => row?.rp), lineStyle: { color: '#2F6BFF', width: 3 }, itemStyle: { color: '#2F6BFF' } },
-      { name: '同期同提前期RP', type: 'line', smooth: true, data: mine.map(row => row?.sameLeadRp), lineStyle: { color: '#36BFFA', type: 'dashed' }, itemStyle: { color: '#36BFFA' } },
+      { name: '同期开盘RP', type: 'line', smooth: true, data: mine.map(row => row?.sameLeadRp), lineStyle: { color: '#36BFFA', type: 'dashed' }, itemStyle: { color: '#36BFFA' } },
       { name: '同期最终RP', type: 'line', smooth: true, data: mine.map(row => row?.lastRp), lineStyle: { color: '#9CA3AF', type: 'dashed' }, itemStyle: { color: '#9CA3AF' } },
     ],
   }
   return <div className="drawer-mask" onClick={onClose}><aside className="drawer store-anomaly-drawer" onClick={event => event.stopPropagation()}>
     <button className="drawer-close" onClick={onClose}><X/></button>
-    <div className="drawer-head"><span className={`store-risk-grade grade-${anomaly.grade}`}>{GRADE_LABEL[anomaly.grade]}</span><h2>{store.name}</h2><p>{store.whCode} · {store.province} / {store.area} / {store.city} / {store.revenueZone || '未配置收益管理商圈'}</p></div>
+    <div className="drawer-head"><span className={`store-risk-grade grade-${anomaly.grade}`}>{GRADE_LABEL[anomaly.grade]}</span><h2>{store.name}</h2><p>{store.whCode} · {store.province} / {store.area} / {store.city} / {store.revenueZone || '未配置收益管理商圈'}</p>{opportunityTags.length > 0 && <div className="store-tag-groups">{opportunityTags.map(tag => <em className="opportunity" key={tag}>{tag}</em>)}</div>}</div>
     <div className="drawer-warning-columns">
       <section><h3>经营预警原因</h3>{anomaly.businessReasons.length ? anomaly.businessReasons.map(reason => <p className="business" key={reason}>{reason}</p>) : <p className="empty">当前未识别到经营异常</p>}</section>
       <section><h3>口径 / 数据说明</h3>{[...anomaly.statusReasons, ...anomaly.dataReasons].length ? [...anomaly.statusReasons, ...anomaly.dataReasons].map(reason => <p className="status" key={reason}>{reason}</p>) : <p className="empty">当前数据口径完整</p>}</section>
@@ -95,7 +102,7 @@ export default function StoreDetailDrawer({ store, allRows, comparisonRows, chan
       <section><b>改造店专项标签</b><p>{renovationTags.length ? renovationTags.join(' · ') : '当前未识别到改造店专项关注项'}</p><b>经营异常标签</b><p>{anomaly.businessTags.length ? anomaly.businessTags.join(' · ') : '当前无经营异常标签'}</p></section>
     </div></>}
     <h3>当前数据</h3>
-    <div className="drawer-kpis"><div><small>预订率 / 商圈</small><b>{fmtPct(store.bookingRate)}</b><em>{fmtPct(zone.bookingRate)} · {fmtPp(zoneGap)}</em><em>同提前期 {fmtPp(store.sameLeadBookingRateGap)}</em></div><div><small>在手ADR</small><b>{fmtMoney(store.adr)}</b><em>同提前期 {fmtMoney(store.sameLeadAdrGap)}</em></div><div><small>理论RP / 同期最终RP</small><b>{fmtMoney(store.rp)}</b><em>{fmtMoney(store.lastRp)}</em><em>同提前期 {fmtMoney(store.sameLeadRpGap)}</em></div><div><small>RP缺口</small><b className={(store.rpGap || 0) < 0 ? 'bad' : 'good'}>{fmtMoney(store.rpGap)}</b></div></div>
+    <div className="drawer-kpis"><div><small>预订率 / 商圈</small><b>{fmtPct(store.bookingRate)}</b><em>{fmtPct(zone.bookingRate)} · {fmtPp(zoneGap)}</em><em>同期开盘 {fmtPp(store.sameLeadBookingRateGap)}</em></div><div><small>在手ADR</small><b>{fmtMoney(store.adr)}</b><em>同期开盘 {fmtMoney(store.sameLeadAdrGap)}</em></div><div><small>理论RP / 同期最终RP</small><b>{fmtMoney(store.rp)}</b><em>{fmtMoney(store.lastRp)}</em><em>同期开盘 {fmtMoney(store.sameLeadRpGap)}</em></div><div><small>RP缺口</small><b className={(store.rpGap || 0) < 0 ? 'bad' : 'good'}>{fmtMoney(store.rpGap)}</b></div></div>
     <div className="drawer-current-detail"><span>预订房间<b>{store.bookedRooms}</b></span><span>可售房<b>{store.availableRooms || '--'}</b></span><span>0预定<b>{store.bookedRooms === 0 && !store.tags.includes('缺失预订数据') ? '是' : '否'}</b></span><span>满房<b>{(store.bookingRate || 0) >= 1 ? '是' : '否'}</b></span></div>
     <h3>较上一版变化</h3>
     <div className="drawer-change-grid"><span>预订率<b>{fmtPp(anomaly.bookingRateChange)}</b></span><span>在手ADR<b>{fmtMoney(anomaly.adrChange)}</b></span><span>理论RP<b>{fmtMoney(anomaly.rpChange)}</b></span><span>预订间夜<b>{anomaly.bookedChange == null ? '--' : `${anomaly.bookedChange >= 0 ? '+' : ''}${anomaly.bookedChange}`}</b></span></div>

@@ -2,6 +2,7 @@ import type { MetricRow, SnapshotRecord } from '../types/data'
 import { channelGroup } from './channels'
 import { isDirectStore } from './diagnostics'
 import { fmtMoney, fmtPct, fmtPp } from './formatter'
+import { isHighBookingPriority } from './priceAdvice'
 import { storeTypeProfile } from './storeTypes'
 
 export type StoreRiskGrade = 'S' | 'A' | 'B' | 'C' | 'normal'
@@ -109,6 +110,7 @@ export function analyzeStore(row: MetricRow, zoneRate: number | null, mix: Store
   const zoneWarming = context.zoneBookingRateChange != null && context.zoneBookingRateChange > 0
   const zoneNotWeak = zoneRate != null && zoneRate >= (near ? .2 : .15)
   const newWithoutComparison = typeProfile.isNew && !hasComparison
+  const highBookingPriority = isHighBookingPriority(row)
 
   if (currentMissing) {
     statusTags.push('无预订数据')
@@ -202,12 +204,12 @@ export function analyzeStore(row: MetricRow, zoneRate: number | null, mix: Store
   const directChannelRisk = direct && nearLow && mix.total > 0 && mix.ota >= .7 && mix.online < .1
   const offlineOnlyRisk = near && nearLow && mix.total > 0 && mix.offline >= .999
   const inventoryOrDisplayRisk = near && nearLow && (currentMissing || dataTags.includes('数据待核验'))
-  const high = zeroNear || lowZoneWeakSpeed || laggingHotZone || priceSuppressing || priceUpVolumeDown || doubleDeclineNear || directChannelRisk || offlineOnlyRisk || inventoryOrDisplayRisk
+  const high = !highBookingPriority && (zeroNear || lowZoneWeakSpeed || laggingHotZone || priceSuppressing || priceUpVolumeDown || doubleDeclineNear || directChannelRisk || offlineOnlyRisk || inventoryOrDisplayRisk)
   if (zeroNear) businessTags.push('近端0预定')
   if (priceSuppressing || priceUpVolumeDown) businessTags.push('价格压制转化')
   if (offlineOnlyRisk) businessTags.push('线下直销100%')
 
-  const medium = !high && (
+  const medium = !high && !highBookingPriority && (
     (nearOrD2 && nearLow) ||
     (nearOrD2 && (bookingRateChange || 0) < 0 && (zoneGap || 0) < 0) ||
     (row.dayOffset === 'D2' && row.bookedRooms === 0) ||
@@ -215,8 +217,10 @@ export function analyzeStore(row: MetricRow, zoneRate: number | null, mix: Store
     (direct && nearLow && (mix.ota >= .6 || (mix.total > 0 && mix.online < .1)))
   )
   const riskNeutralTags = new Set(['RP缺口大'])
-  const hasActionableAttention = businessTags.some(tag => !riskNeutralTags.has(tag)) ||
-    ['价格偏高风险', '高量低价风险'].includes(context.priceAdviceLabel || '')
+  const highBookingProtectedTags = new Set(['低于商圈', '低于商圈10pp+', '预订率下降', 'ADR下降', '量价双降', '量升价降', '满房低价'])
+  const hasActionableAttention = businessTags.some(tag =>
+    !riskNeutralTags.has(tag) && (!highBookingPriority || !highBookingProtectedTags.has(tag))) ||
+    (!highBookingPriority && ['价格偏高风险', '高量低价风险'].includes(context.priceAdviceLabel || ''))
   const attention = !high && !medium && hasActionableAttention
   const methodology = !high && !medium && !attention && (statusTags.length > 0 || dataTags.length > 0)
   const grade: StoreRiskGrade = high ? 'S' : medium ? 'A' : attention ? 'B' : methodology ? 'C' : 'normal'

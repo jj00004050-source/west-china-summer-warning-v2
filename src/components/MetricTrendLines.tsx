@@ -2,7 +2,7 @@ import { fmtMoney, fmtPp } from '../utils/formatter'
 
 const signedMoney = (value: number | null) => value == null ? '--' : `${value > 0 ? '+' : ''}${fmtMoney(value)}`
 
-export default function MetricTrendLines({ kind, change, sameLeadGap, sameLeadLabel = '同提前期' }: {
+export default function MetricTrendLines({ kind, change, sameLeadGap, sameLeadLabel = '同期开盘' }: {
   kind: 'rate' | 'money'
   change: number | null
   sameLeadGap: number | null

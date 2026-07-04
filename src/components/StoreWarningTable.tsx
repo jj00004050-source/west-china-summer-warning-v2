@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Download, Search } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Check, ChevronDown, Download, Search } from 'lucide-react'
 import type { ComparisonRow, MetricRow, PriceAdviceSettings, SnapshotRecord } from '../types/data'
 import { fmtMoney, fmtPct, fmtPp } from '../utils/formatter'
 import { aggregate } from '../utils/metrics'
@@ -7,7 +7,7 @@ import { CHANNEL_COLORS } from '../utils/channels'
 import BookingRateBar from './BookingRateBar'
 import MetricTrendLines from './MetricTrendLines'
 import type { DistributionMetric } from '../utils/diagnostics'
-import { buildPriceAdvice, type PriceAdvice, type PriceAdviceLabel } from '../utils/priceAdvice'
+import { buildPriceAdvice, isHighBookingPriority, type PriceAdvice, type PriceAdviceLabel } from '../utils/priceAdvice'
 import { storeTypeProfile, type RenovationFilter, type StoreTypeFilter } from '../utils/storeTypes'
 import {
   analyzeStore,
@@ -36,8 +36,8 @@ const cardDefinitions = [
   ['数据待核验', (item: EnrichedStore) => item.anomaly.dataTags.includes('数据待核验'), 'data'],
 ] as const
 
-const PRICE_ADVICE_OPTIONS: Array<'全部提价建议' | PriceAdviceLabel> = [
-  '全部提价建议','强烈建议提价','建议提价','建议小幅提价','阶梯式提价','提前提价机会','保持观察',
+const PRICE_ADVICE_OPTIONS: PriceAdviceLabel[] = [
+  '强烈建议提价','建议提价','建议小幅提价','阶梯式提价','提前提价机会','保持观察',
   '渠道补量','渠道预热','不建议提价','流量预警','价格偏高风险','高量低价风险','样本不足','商圈未配置，无法判断',
 ]
 const PRICE_OPPORTUNITY_LABELS: PriceAdviceLabel[] = ['强烈建议提价','建议提价','建议小幅提价','阶梯式提价','提前提价机会']
@@ -46,6 +46,16 @@ const priceAdviceTone = (label: PriceAdviceLabel) => label === '强烈建议提�
     : label === '价格偏高风险' ? 'high'
       : ['高量低价风险','不建议提价','渠道补量','渠道预热','流量预警'].includes(label) ? 'watch'
         : label === '商圈未配置，无法判断' ? 'zone' : 'neutral'
+const positiveStoreTags = (row: MetricRow, label: PriceAdviceLabel) => {
+  if (!isHighBookingPriority(row)) return []
+  return [
+    '高预订率',
+    (row.bookingRate || 0) >= .8 ? '满房临近' : '',
+    PRICE_OPPORTUNITY_LABELS.includes(label) ? '提价机会' : '',
+    row.adr != null ? '价格承接良好' : '',
+    (row.dayOffset === 'D0' || row.dayOffset === 'D1') && (row.bookingRate || 0) >= .8 ? '控房检查' : '',
+  ].filter(Boolean)
+}
 
 function ChannelDonut({ mix }: { mix: StoreChannelMix }) {
   if (!mix.total) return <div className="store-channel-mini empty" data-tooltip="无预订来源"><i><em/></i><span><b>无预订</b><small>无渠道来源</small></span></div>
@@ -75,7 +85,9 @@ export default function StoreWarningTable({ rows, benchmarkRows = rows, comparis
 }) {
   const [query, setQuery] = useState('')
   const [anomalyFilter, setAnomalyFilter] = useState('全部')
-  const [priceFilter, setPriceFilter] = useState<'全部提价建议' | PriceAdviceLabel>('全部提价建议')
+  const [priceFilters, setPriceFilters] = useState<PriceAdviceLabel[]>([])
+  const [priceFilterOpen, setPriceFilterOpen] = useState(false)
+  const priceFilterRef = useRef<HTMLDivElement>(null)
   const [sort, setSort] = useState<SortKey>('rpGap')
   const [asc, setAsc] = useState(true)
   const [page, setPage] = useState(1)
@@ -85,6 +97,21 @@ export default function StoreWarningTable({ rows, benchmarkRows = rows, comparis
     const mapped: Partial<Record<DistributionMetric, SortKey>> = { zoneGap: 'zoneGap', bookingRate: 'bookingRate', rpGap: 'rpGap', rp: 'rp', adrGap: 'adr', bookingRateChange: 'bookingRate', rpChange: 'snapshotChange', otaShare: 'otaShare', onlineShare: 'onlineShare' }
     setSort(mapped[initialDiagnosticSort] || 'rpGap'); setAsc(true); setPage(1)
   }, [initialDiagnosticSort])
+  useEffect(() => {
+    if (!priceFilterOpen) return
+    const close = (event: MouseEvent) => {
+      if (!priceFilterRef.current?.contains(event.target as Node)) setPriceFilterOpen(false)
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setPriceFilterOpen(false)
+    }
+    document.addEventListener('mousedown', close)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('mousedown', close)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [priceFilterOpen])
 
   const zoneGroups = useMemo(() => benchmarkRows.reduce<Record<string, MetricRow[]>>((result, row) => {
     if (row.revenueZone) (result[row.revenueZone] ||= []).push(row)
@@ -104,7 +131,9 @@ export default function StoreWarningTable({ rows, benchmarkRows = rows, comparis
   })), [zoneGroups])
   const channelByHotel = useMemo(() => buildStoreChannelMix(channelRows), [channelRows])
   const enriched = useMemo<EnrichedStore[]>(() => rows.map(row => {
-    if (row.precomputedStoreInsight) {
+    const staleHighBookingInsight = row.precomputedStoreInsight && isHighBookingPriority(row) &&
+      ['样本不足', '价格偏高风险', '高量低价风险'].includes(row.precomputedStoreInsight.priceAdvice.label)
+    if (row.precomputedStoreInsight && !staleHighBookingInsight) {
       const insight = row.precomputedStoreInsight
       return {
         row,
@@ -163,7 +192,7 @@ export default function StoreWarningTable({ rows, benchmarkRows = rows, comparis
   }
   const filtered = useMemo(() => enriched.filter(item =>
     (!query || `${item.row.name}${item.row.whCode}`.toLowerCase().includes(query.toLowerCase())) && matchesAnomaly(item) &&
-    (priceFilter === '全部提价建议' || item.priceAdvice.label === priceFilter)
+    (!priceFilters.length || priceFilters.includes(item.priceAdvice.label))
   ).sort((a, b) => {
     const ap = priority.get(a.row.whCode), bp = priority.get(b.row.whCode)
     if (ap != null || bp != null) return (ap ?? Number.MAX_SAFE_INTEGER) - (bp ?? Number.MAX_SAFE_INTEGER)
@@ -184,13 +213,17 @@ export default function StoreWarningTable({ rows, benchmarkRows = rows, comparis
     }
     const av = value(a), bv = value(b)
     return (typeof av === 'string' ? av.localeCompare(String(bv), 'zh-CN') : av - Number(bv)) * (asc ? 1 : -1)
-  }), [enriched, query, anomalyFilter, priceFilter, sort, asc, priority, storeTypeFilter, renovationFilter])
+  }), [enriched, query, anomalyFilter, priceFilters, sort, asc, priority, storeTypeFilter, renovationFilter])
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize)
   const pages = Math.max(1, Math.ceil(filtered.length / pageSize))
-  useEffect(() => { setPage(1) }, [rows, query, anomalyFilter, priceFilter, storeTypeFilter, renovationFilter, pageSize])
+  useEffect(() => { setPage(1) }, [rows, query, anomalyFilter, priceFilters, storeTypeFilter, renovationFilter, pageSize])
   useEffect(() => { if (page > pages) setPage(pages) }, [page, pages])
   const doSort = (key: SortKey) => { if (sort === key) setAsc(value => !value); else { setSort(key); setAsc(true) } }
   const chooseFilter = (value: string) => { setAnomalyFilter(value); setPage(1) }
+  const togglePriceFilter = (value: PriceAdviceLabel) => {
+    setPriceFilters(current => current.includes(value) ? current.filter(item => item !== value) : [...current, value])
+    setPage(1)
+  }
   const exportRows = async () => {
     const { utils, writeFile } = await import('xlsx')
     const ws = utils.json_to_sheet(filtered.map(({ row, zoneRate, zoneGap, mix, anomaly, priceAdvice, typeProfile, renovationTags }) => ({
@@ -198,9 +231,10 @@ export default function StoreWarningTable({ rows, benchmarkRows = rows, comparis
       品牌: row.brand, 品牌定位: row.positioning, 经营类型: row.operationType, 管理类型: row.managementType, 是否直营: anomaly.direct ? '是' : '否',
       当前预订率: row.bookingRate, 商圈预订率: zoneRate, 较商圈差异: zoneGap, 在手ADR: row.adr, 理论RP: row.rp, 同期RP: row.lastRp, RP缺口: row.rpGap,
       预订率较上一版变化: anomaly.bookingRateChange, ADR较上一版变化: anomaly.adrChange, 理论RP较上一版变化: anomaly.rpChange,
-      同期同提前期预订率: row.sameLeadBookingRate, 同期同提前期在手ADR: row.sameLeadAdr, 同期同提前期理论RP: row.sameLeadRp,
-      同提前期预订率差异: row.sameLeadBookingRateGap, 同提前期ADR差异: row.sameLeadAdrGap, 同提前期理论RP差异: row.sameLeadRpGap,
+      同期开盘预订率: row.sameLeadBookingRate, 同期开盘在手ADR: row.sameLeadAdr, 同期开盘理论RP: row.sameLeadRp,
+      同期开盘预订率差异: row.sameLeadBookingRateGap, 同期开盘ADR差异: row.sameLeadAdrGap, 同期开盘理论RP差异: row.sameLeadRpGap,
       经营风险等级: GRADE_LABEL[anomaly.grade], 经营异常标签: anomaly.businessTags.join('、'), 经营异常原因: anomaly.businessReasons.join('；'),
+      正向经营标签: positiveStoreTags(row, priceAdvice.label).join('、'),
       状态标签: anomaly.statusTags.join('、'), 口径说明: anomaly.statusReasons.join('；'), 数据校验标签: anomaly.dataTags.join('、'), 数据校验原因: anomaly.dataReasons.join('；'),
       门店类型标签: typeProfile.typeTags.join('、'), 是否新开: typeProfile.isNew ? '是' : '否', 开业日期: row.openDate, 开业月龄: typeProfile.openMonths,
       新开阶段: typeProfile.newStage, 是否改造店: typeProfile.isRenovated ? '是' : '否', 改造类型: row.renovationType || '--', 改造店专项标签: renovationTags.join('、'),
@@ -222,7 +256,24 @@ export default function StoreWarningTable({ rows, benchmarkRows = rows, comparis
       <div className="panel-title compact"><div><span className="eyebrow">STORE EARLY WARNING</span><h2>门店预警明细 <em>{rows.length}</em>{filtered.length !== rows.length && <small>当前筛选 {filtered.length} 家</small>}</h2></div>
         <div className="table-tools"><label className="search"><Search size={14}/><input placeholder="搜索门店 / WH编码" value={query} onChange={event => { setQuery(event.target.value); setPage(1) }}/></label>
         <select value={anomalyFilter} onChange={event => chooseFilter(event.target.value)}>{anomalyOptions.map(value => <option key={value}>{value}</option>)}</select>
-        <select className="price-advice-filter" value={priceFilter} onChange={event => { setPriceFilter(event.target.value as typeof priceFilter); setPage(1) }}>{PRICE_ADVICE_OPTIONS.map(value => <option key={value}>{value}</option>)}</select>
+        <div className={`price-advice-multiselect ${priceFilterOpen ? 'open' : ''}`} ref={priceFilterRef}>
+          <button type="button" className="price-advice-filter-trigger" aria-haspopup="listbox" aria-expanded={priceFilterOpen} onClick={() => setPriceFilterOpen(open => !open)}>
+            <span>{priceFilters.length === 0 ? '全部提价建议' : priceFilters.length === 1 ? priceFilters[0] : `已选 ${priceFilters.length} 项`}</span>
+            <ChevronDown size={14}/>
+          </button>
+          {priceFilterOpen && <div className="price-advice-filter-menu" role="listbox" aria-multiselectable="true">
+            <button type="button" className={`price-advice-filter-option all ${priceFilters.length === 0 ? 'selected' : ''}`} onClick={() => { setPriceFilters([]); setPage(1) }}>
+              <i>{priceFilters.length === 0 && <Check size={11}/>}</i><span>全部提价建议</span><small>清空选择</small>
+            </button>
+            <div className="price-advice-filter-divider"/>
+            {PRICE_ADVICE_OPTIONS.map(value => {
+              const selected = priceFilters.includes(value)
+              return <button type="button" role="option" aria-selected={selected} className={`price-advice-filter-option ${selected ? 'selected' : ''}`} key={value} onClick={() => togglePriceFilter(value)}>
+                <i>{selected && <Check size={11}/>}</i><span>{value}</span>
+              </button>
+            })}
+          </div>}
+        </div>
         <button onClick={exportRows}><Download size={14}/>导出当前结果</button></div>
       </div>
       <div className="store-table-methodology">门店明细仅展示当前维度表中经营状态为在营 / 在营业的门店；同期数据仅用于当前在营门店的对比。无同期、新开无可比、商圈未配置属于口径状态，不直接计入经营异常。</div>
@@ -231,6 +282,7 @@ export default function StoreWarningTable({ rows, benchmarkRows = rows, comparis
         <div>
           <p><b>异常门店：</b>至少命中一项经营异常标签，包括0预定、低预订率、低于商圈、RP缺口大、预订率或ADR下降、量价双降、OTA偏高或线上直销偏低等。</p>
           <p><b>高风险门店：</b>异常门店中触发近端严重条件的S级门店，重点包括D0-D1零预定、D0-D2低预订且进速弱、明显落后升温商圈、价格压制转化、近端量价双降，以及直营店渠道结构严重失衡。</p>
+          <p><b>高预订率保护：</b>D0预订率达到50%、D1达到40%、D2达到35%且预订、房量和ADR有效时，优先识别为提价机会；不会仅因ADR较高或样本门店数较少判为价格偏高风险或样本不足。</p>
           <p><b>不直接算异常：</b>无同期、新开无可比、商圈未配置、开业日期缺失等属于口径状态；数据待核验属于数据治理提示。</p>
         </div>
       </details>
@@ -239,7 +291,7 @@ export default function StoreWarningTable({ rows, benchmarkRows = rows, comparis
           <td><div className="store-name-line"><span className={`store-risk-grade grade-${anomaly.grade}`}>{GRADE_LABEL[anomaly.grade]}</span><b>{row.name}</b></div><small>{row.whCode}</small>
             <div className="store-tag-groups type-tags">{typeProfile.typeTags.map(tag => <em className="type" key={tag}>{tag}</em>)}{!row.openDate && <em className="status">开业日期缺失</em>}</div>
             {renovationTags.length > 0 && <div className="store-tag-groups renovation-tags">{renovationTags.slice(0, 2).map(tag => <em key={tag}>{tag}</em>)}</div>}
-            <div className="store-tag-groups">{anomaly.businessTags.slice(0, 3).map(tag => <em className="business" key={tag}>{tag}</em>)}{anomaly.statusTags.slice(0, 2).map(tag => <em className="status" key={tag}>{tag}</em>)}{anomaly.dataTags.slice(0, 1).map(tag => <em className="data" key={tag}>{tag}</em>)}</div></td>
+            <div className="store-tag-groups">{positiveStoreTags(row, priceAdvice.label).slice(0, 3).map(tag => <em className="opportunity" key={tag}>{tag}</em>)}{anomaly.businessTags.slice(0, 3).map(tag => <em className="business" key={tag}>{tag}</em>)}{anomaly.statusTags.slice(0, 2).map(tag => <em className="status" key={tag}>{tag}</em>)}{anomaly.dataTags.slice(0, 1).map(tag => <em className="data" key={tag}>{tag}</em>)}</div></td>
           <td>{row.province}<small>{row.area}</small>{row.isRenovated && <small className="renovation-type-inline">改造类型：{row.renovationType || '未标记'}</small>}<em className="store-available-inline">可售 {row.availableRooms || (row.tags.includes('缺失预订数据') ? '--' : 0)}</em></td>
           <td><BookingRateBar value={row.bookingRate}/><MetricTrendLines kind="rate" change={anomaly.bookingRateChange} sameLeadGap={row.sameLeadBookingRateGap}/><div className="zone-rate-compare"><span>商圈 {fmtPct(zoneRate)}</span><b className={(zoneGap || 0) < 0 ? 'negative' : 'positive'}>{fmtPp(zoneGap)}</b></div></td>
           <td>{fmtMoney(row.adr)}<MetricTrendLines kind="money" change={anomaly.adrChange} sameLeadGap={row.sameLeadAdrGap}/></td><td>{fmtMoney(row.rp)}<MetricTrendLines kind="money" change={anomaly.rpChange} sameLeadGap={row.sameLeadRpGap}/></td><td>{fmtMoney(row.lastRp)}</td>

@@ -100,6 +100,6 @@ export const FIELD_LABELS: Record<string, string> = {
   bookedRooms: '预订房间总数', pricedRooms: '有房价预订房间数', bookingRevenue: '预订总价',
   bookingRate: '预订率', onHandAdr: '在手ADR', theoreticalRp: '理论RP', channel: '渠道名称',
   channelNights: '渠道预订间夜', channelRevenue: '渠道预订收入', channelAdr: '渠道ADR',
-  sameLeadSnapshots: '同期同提前期预订快照', 
+  sameLeadSnapshots: '同期开盘预订快照', 
   renovationType: '改造类型',
 }

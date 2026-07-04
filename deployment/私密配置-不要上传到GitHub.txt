@@ -1,0 +1,18 @@
+华西区域暑期预警数据看板 - Netlify 私密配置
+
+重要：
+1. 本文件不要上传到 GitHub。
+2. 本文件不要放入 01-网站部署源码。
+3. 本文件不要发给普通看板用户。
+4. 仅在 Netlify 的 Project configuration > Environment variables 中填写。
+
+ADMIN_PASSWORD=921014
+SESSION_SECRET=d750e83289a2abb1f8cb1f45495233e1d8eff0e3c7d5904a2cabb487f1ed1d32
+
+后台地址：
+https://你的域名/admin
+
+公共看板：
+https://你的域名/dashboard
+
+正式投入使用后建议把 ADMIN_PASSWORD 改为更长的强密码，并重新部署。

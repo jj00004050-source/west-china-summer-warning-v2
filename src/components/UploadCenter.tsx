@@ -13,7 +13,7 @@ import type { SaveProgress } from '../utils/api'
 const kinds: Array<[DataKind, string, string]> = [
   ['hotels', '酒店维度表', '系统预置 · 低频维护'],
   ['lastYear', '去年同期暑期经营表', '系统预置 · 最终经营基准'],
-  ['sameLeadSnapshots', '同期同提前期预订快照表', '去年周对周 · 开盘预订基准'],
+  ['sameLeadSnapshots', '同期开盘预订快照表', '去年周对周 · 开盘预订基准'],
   ['snapshots', '未来7天预订快照表', '同基准日覆盖 · 保留上一版末次'],
   ['renovations', '改造店明细', '可选维护 · 按WH编码关联'],
 ]
@@ -22,7 +22,7 @@ const warningMessage = (kind: DataKind) => kind === 'hotels'
   : kind === 'lastYear'
     ? '存在数据警告，可继续保存；部分历史同期记录存在WH缺失、可售房为空或已售大于可售，将保留在异常清单中，不影响同期基准数据上传。'
     : kind === 'sameLeadSnapshots'
-      ? '存在数据警告，可继续保存；异常日期行将跳过，未匹配门店及可售房缺失记录仅保留提示，不影响同期同提前期基准保存。'
+      ? '存在数据警告，可继续保存；异常日期行将跳过，未匹配门店及可售房缺失记录仅保留提示，不影响同期开盘基准保存。'
     : '存在数据警告，可继续保存；异常记录已保留在异常清单中。'
 export default function UploadCenter({ data, onData }: { data: StoredData; onData: (d: StoredData, onProgress?: (progress: SaveProgress) => void) => void | Promise<void> }) {
   const [kind, setKind] = useState<DataKind>('snapshots'); const [raw, setRaw] = useState<Record<string, unknown>[]>([]); const [headers, setHeaders] = useState<string[]>([]); const [mapping, setMapping] = useState<Record<string, string>>({}); const [fileName, setFileName] = useState(''); const [issues, setIssues] = useState<QualityIssue[]>([]); const [message, setMessage] = useState('')
@@ -155,7 +155,7 @@ export default function UploadCenter({ data, onData }: { data: StoredData; onDat
   })
   return <main className="upload-page">
     <div className="upload-hero"><div><span className="eyebrow">DATA OPERATIONS CENTER</span><h2>数据上传中心</h2><p>自动识别字段、校验数据质量，并将确认后的数据写入统一服务端。</p></div>
-      <div className="upload-summary"><span><b>{data.hotels.length}</b>门店</span><span><b>{data.lastYear.length}</b>同期最终记录</span><span><b>{data.sameLeadSnapshots?.length || 0}</b>同提前期快照</span><span><b>{data.batches.length}</b>当前快照批次</span><span><b>{data.renovations?.length || 0}</b>改造记录</span></div>
+      <div className="upload-summary"><span><b>{data.hotels.length}</b>门店</span><span><b>{data.lastYear.length}</b>同期最终记录</span><span><b>{data.sameLeadSnapshots?.length || 0}</b>同期开盘快照</span><span><b>{data.batches.length}</b>当前快照批次</span><span><b>{data.renovations?.length || 0}</b>改造记录</span></div>
     </div>
     <div className="upload-grid"><section className="panel upload-main">
       <div className="template-actions">{kinds.map(([k, label]) => <button key={k} onClick={() => downloadTemplate(k)}>下载{label}模板</button>)}</div>

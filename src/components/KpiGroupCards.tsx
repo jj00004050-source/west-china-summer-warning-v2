@@ -53,7 +53,7 @@ export default function KpiGroupCards({ current, previous, hasPrevious, comparis
   ]
   return <section className="kpi-groups">
     {groups.map(g => <article className={`kpi-group ${g.key}`} key={g.key}>
-      <div className="kpi-group-top"><span className="kpi-icon"><g.icon/></span><div><small>{g.title}</small><strong>{g.value}</strong></div><div className="kpi-comparison-lines"><em title={comparisonTooltip} className={g.bad ? 'down' : 'up'}>{hasPrevious ? `环比 ${g.delta}` : '环比 --'}</em><small className={g.sameLead.startsWith('-') ? 'down' : 'up'}>同提前期 {g.sameLead}</small></div></div>
+      <div className="kpi-group-top"><span className="kpi-icon"><g.icon/></span><div><small>{g.title}</small><strong>{g.value}</strong></div><div className="kpi-comparison-lines"><em title={comparisonTooltip} className={g.bad ? 'down' : 'up'}>{hasPrevious ? `环比 ${g.delta}` : '环比 --'}</em><small className={g.sameLead.startsWith('-') ? 'down' : 'up'}>同期开盘 {g.sameLead}</small></div></div>
       <div className="kpi-submetrics">{g.items.map(([label, value]) => <span key={label}><small>{label}</small><b>{value}</b></span>)}</div>
       <svg className="kpi-spark" viewBox="0 0 220 28" preserveAspectRatio="none"><path d="M0 22 C22 24 25 9 47 16 S78 23 93 12 S119 6 133 15 S162 24 180 11 S205 13 220 5"/></svg>
     </article>)}

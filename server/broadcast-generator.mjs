@@ -344,9 +344,9 @@ export function generateBroadcastPackage(data, request = {}) {
   const basePriceAction = row => {
     const value = row.bookingRate
     if (value == null) return '样本不足'
-    if (row.dayOffset === 'D0') return value >= .7 ? '强烈建议提价' : value >= .5 ? '建议提价' : value >= .3 ? '阶梯式提价' : value >= .2 ? '保持观察' : '不建议提价'
-    if (row.dayOffset === 'D1') return value >= .55 ? '强烈建议提价' : value >= .4 ? '建议提价' : value >= .25 ? '建议小幅提价' : value >= .15 ? '渠道补量' : '不建议提价'
-    if (row.dayOffset === 'D2') return value >= .45 ? '强烈建议提价' : value >= .35 ? '建议小幅提价' : value >= .25 ? '保持观察' : value >= .15 ? '渠道补量' : '不建议提价'
+    if (row.dayOffset === 'D0') return value >= .8 ? '强烈建议提价' : value >= .7 ? '建议提价' : value >= .5 ? '建议小幅提价' : value >= .3 ? '阶梯式提价' : value >= .2 ? '保持观察' : '不建议提价'
+    if (row.dayOffset === 'D1') return value >= .7 ? '强烈建议提价' : value >= .55 ? '建议提价' : value >= .4 ? '建议小幅提价' : value >= .25 ? '建议小幅提价' : value >= .15 ? '渠道补量' : '不建议提价'
+    if (row.dayOffset === 'D2') return value >= .6 ? '强烈建议提价' : value >= .45 ? '建议提价' : value >= .35 ? '建议小幅提价' : value >= .25 ? '保持观察' : value >= .15 ? '渠道补量' : '不建议提价'
     if (row.dayOffset === 'D3') return value >= .35 ? '阶梯式提价' : value >= .25 ? '建议小幅提价' : value >= .15 ? '保持观察' : '不建议提价'
     if (row.dayOffset === 'D4') return value >= .3 ? '建议小幅提价' : value >= .2 ? '保持观察' : value >= .1 ? '渠道补量' : '不建议提价'
     return value >= .25 ? '提前提价机会' : value >= .15 ? '保持观察' : value >= .08 ? '渠道预热' : '流量预警'
@@ -354,13 +354,16 @@ export function generateBroadcastPackage(data, request = {}) {
   const priceAdvice = row => {
     const zone = row.revenueZone ? zoneByName.get(row.revenueZone) : null
     if (!zone || zone.bookingRate == null || zone.adr == null) return '商圈未配置，无法判断'
-    if (row.bookingRate == null || row.adr == null || row.bookedRooms < priceConfig.minBookedRooms || row.pricedRooms < priceConfig.minPricedRooms) return '样本不足'
+    const highBookingFloor = row.dayOffset === 'D0' ? .5 : row.dayOffset === 'D1' ? .4 : row.dayOffset === 'D2' || row.dayOffset === 'D3' ? .35 : row.dayOffset === 'D4' ? .3 : .25
+    const highBookingPriority = row.bookingRate != null && row.bookingRate >= highBookingFloor && row.availableRooms > 0 && row.bookedRooms > 0 && row.pricedRooms > 0 && row.adr != null && row.adr > 0
+    if (row.bookingRate == null || row.adr == null || (!highBookingPriority && (row.bookedRooms < priceConfig.minBookedRooms || row.pricedRooms < priceConfig.minPricedRooms))) return '样本不足'
     const zoneRateGap = row.bookingRate - zone.bookingRate
     const zoneAdrGap = row.adr - zone.adr
     const highPrice = zoneAdrGap >= priceConfig.highAdrAmount || row.adr >= zone.adr * (1 + priceConfig.highAdrRate)
     const lowPrice = zoneAdrGap <= -priceConfig.lowAdrAmount || row.adr <= zone.adr * (1 - priceConfig.lowAdrRate)
-    if ((highPrice && zoneRateGap < 0) || ((row.adrChange || 0) > 5 && (row.bookingRateChange || 0) < 0)) return '价格偏高风险'
-    if ((row.bookingRateChange || 0) > 0 && (row.adrChange || 0) < -10 && lowPrice) return '高量低价风险'
+    const weakSpeed = row.bookingRateChange != null && row.bookingRateChange <= 0 && (row.bookedChange == null || row.bookedChange <= 0)
+    if (!highBookingPriority && highPrice && zoneRateGap <= -.05 && weakSpeed) return '价格偏高风险'
+    if (!highBookingPriority && (row.bookingRateChange || 0) > 0 && (row.adrChange || 0) < -10 && lowPrice) return '高量低价风险'
     const action = basePriceAction(row)
     if (zoneRateGap <= -.1 && (row.bookingRateChange == null || row.bookingRateChange <= 0) && ['强烈建议提价', '建议提价', '建议小幅提价', '阶梯式提价'].includes(action)) return '保持观察'
     return action
@@ -439,6 +442,8 @@ export function generateBroadcastPackage(data, request = {}) {
     const zoneWarming = (row.zoneBookingRateChange || 0) > 0
     const zoneNotWeak = row.zoneBookingRate != null && row.zoneBookingRate >= (near ? .2 : .15)
     const newWithoutComparison = row.openMonths != null && row.openMonths <= 18 && !row.last
+    const highBookingFloor = row.dayOffset === 'D0' ? .5 : row.dayOffset === 'D1' ? .4 : row.dayOffset === 'D2' || row.dayOffset === 'D3' ? .35 : row.dayOffset === 'D4' ? .3 : .25
+    const highBookingPriority = row.bookingRate != null && row.bookingRate >= highBookingFloor && row.availableRooms > 0 && row.bookedRooms > 0 && row.pricedRooms > 0 && row.adr != null && row.adr > 0
     const zeroNear = near && !row.missing && row.bookedRooms === 0 && !newWithoutComparison
     const lowZoneWeak = near && nearLow && row.zoneGap != null && row.zoneGap < 0 && weakSpeed
     const laggingHotZone = nearOrD2 && row.zoneGap != null && row.zoneGap <= -.1 && (zoneNotWeak || zoneWarming)
@@ -447,8 +452,8 @@ export function generateBroadcastPackage(data, request = {}) {
     const doubleDeclineNear = nearOrD2 && nearLow && row.quantityPrice === '量价双降'
     const directChannelRisk = nearLow && row.isDirect && mix.total > 0 && mix.ota >= .7 && mix.online < .1
     const offlineOnlyRisk = near && nearLow && mix.total > 0 && mix.offline >= .999
-    const high = !row.missing && (zeroNear || lowZoneWeak || laggingHotZone || priceSuppressing || priceUpVolumeDown || doubleDeclineNear || directChannelRisk || offlineOnlyRisk)
-    const medium = !high && !row.missing && (
+    const high = !highBookingPriority && !row.missing && (zeroNear || lowZoneWeak || laggingHotZone || priceSuppressing || priceUpVolumeDown || doubleDeclineNear || directChannelRisk || offlineOnlyRisk)
+    const medium = !high && !highBookingPriority && !row.missing && (
       (nearOrD2 && nearLow) ||
       (nearOrD2 && (row.bookingRateChange || 0) < 0 && (row.zoneGap || 0) < 0) ||
       (row.dayOffset === 'D2' && row.bookedRooms === 0) ||
@@ -457,7 +462,7 @@ export function generateBroadcastPackage(data, request = {}) {
     const attention = !high && !medium && !row.missing && (
       (row.bookingRate != null && row.bookingRate < .1) ||
       (row.zoneGap != null && row.zoneGap < 0) ||
-      ['价格偏高风险', '高量低价风险'].includes(row.priceAdvice) ||
+      (!highBookingPriority && ['价格偏高风险', '高量低价风险'].includes(row.priceAdvice)) ||
       storeChannelRisks.some(item => item.row.whCode === row.whCode) ||
       !!row.specialZoneType
     )
@@ -541,7 +546,7 @@ export function generateBroadcastPackage(data, request = {}) {
     overall.sameLeadAdrGap == null ? '' : `ADR${overall.sameLeadAdrGap >= 0 ? '高' : '低'}${money(Math.abs(overall.sameLeadAdrGap))}元`,
     overall.sameLeadRpGap == null ? '' : `理论RP${overall.sameLeadRpGap >= 0 ? '高' : '低'}${money(Math.abs(overall.sameLeadRpGap))}`,
   ].filter(Boolean)
-  const sameLeadText = sameLeadParts.length ? `，较同期同提前期${sameLeadParts.join('、')}` : ''
+  const sameLeadText = runNo === 1 && sameLeadParts.length ? `，较同期开盘${sameLeadParts.join('、')}` : ''
   const overallText = `${scheduleTime ? `${scheduleTime}预警，` : ''}本次重点播报今日入住日${cnDate(targetDate)}${phase}表现，同时覆盖未来7天预警。\n${scopeLabel}今日预订率${pct(overall.bookingRate)}，${ringText(overallChange)}${sameLeadText}；在手ADR${money(overall.adr)}元，理论RP${money(overall.rp)}。\n当前预订率为0门店${zeroStores.length}家，预订率大于80%门店${highBookingStores.length}家。\n${overallJudgments}`
 
   const provinceText = `省区表现方面，${bestProvince ? `${bestProvince.name}预订率最高，达到${pct(bestProvince.bookingRate)}` : '暂无可比省区'}；低位省区为${itemText(lowProvinces, item => `${item.name}${pct(item.bookingRate)}`)}。\n高预订省区重点关注高预订门店价格兑现和满房质量；低预订省区重点关注低预订、渠道展示和商圈承接不足门店。`

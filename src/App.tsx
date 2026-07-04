@@ -246,8 +246,8 @@ export default function App() {
       {showMethodology && <section className="methodology-panel">
         <div><small>当前目标日期</small><b>{targetDate || '--'}</b></div>
         <div><small>实际同期日期</small><b>{comparison.comparisonDate || '--'}</b><em>{comparison.usedManualMapping ? '日期映射表' : '目标日期 -364天'}</em></div>
-        <div className={sameLeadComparison.missing ? 'methodology-warning' : ''}><small>同提前期日期</small><b>{sameLeadComparison.comparisonDate || '--'}</b><em>{sameLeadRows.length ? `快照表匹配 ${sameLeadRows.length} 家` : '无同期同提前期数据'}</em></div>
-        <div><small>同提前期门店状态</small><b>在营业 / 已解约 / 整改中</b><em>其他状态已剔除</em></div>
+        <div className={sameLeadComparison.missing ? 'methodology-warning' : ''}><small>同期开盘日期</small><b>{sameLeadComparison.comparisonDate || '--'}</b><em>{sameLeadRows.length ? `快照表匹配 ${sameLeadRows.length} 家` : '无同期开盘数据'}</em></div>
+        <div><small>同期开盘门店状态</small><b>在营业 / 已解约 / 整改中</b><em>其他状态已剔除</em></div>
         <div><small>当前期门店口径</small><b>当前在营门店</b><em>{activeScopedHotels.length} 家</em></div>
         <div><small>同期门店口径</small><b>去年同期全量门店</b><em>{comparisonRows.length} 家</em></div>
         <div><small>当前跑批</small><b>{selected?.batchTime || '--'}</b><em>{comparisonLabel}</em></div>

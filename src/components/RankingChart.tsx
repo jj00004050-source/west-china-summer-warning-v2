@@ -11,8 +11,8 @@ const TREEMAP_COLORS = ['#7EB3F7','#8A9CF6','#78D3E6','#76CFB0','#A6A0F2','#F3B7
 type RankingMetric = 'bookingRate' | 'rp' | 'adr' | 'bookingRateChange' | 'adrChange' | 'rpChange' | 'sameLeadBookingRateGap' | 'sameLeadAdrGap' | 'sameLeadRpGap' | 'warningCount' | 'zeroCount' | 'priceHighCount' | 'highVolumeLowPriceCount' | 'priceOpportunityCount'
 const RANKING_OPTIONS: Array<[RankingMetric, string, 'pct' | 'pp' | 'money' | 'count']> = [
   ['bookingRate','预订率','pct'],['rp','理论RP','money'],['adr','在手ADR','money'],['bookingRateChange','预订率环比','pp'],
-  ['adrChange','在手ADR环比','money'],['rpChange','理论RP环比','money'],['sameLeadBookingRateGap','同提前期预订率差异','pp'],
-  ['sameLeadAdrGap','同提前期ADR差异','money'],['sameLeadRpGap','同提前期理论RP差异','money'],['warningCount','异常门店数','count'],
+  ['adrChange','在手ADR环比','money'],['rpChange','理论RP环比','money'],['sameLeadBookingRateGap','同期开盘预订率差异','pp'],
+  ['sameLeadAdrGap','同期开盘ADR差异','money'],['sameLeadRpGap','同期开盘理论RP差异','money'],['warningCount','异常门店数','count'],
   ['zeroCount','0预定门店数','count'],['priceHighCount','价格偏高门店数','count'],['highVolumeLowPriceCount','高量低价门店数','count'],['priceOpportunityCount','提价机会门店数','count'],
 ]
 

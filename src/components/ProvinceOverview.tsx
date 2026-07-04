@@ -28,7 +28,7 @@ export default function ProvinceOverview({ rows, comparisonRows, sameLeadRows, c
   </tr>
   const exportRows = async () => {
     const { utils, writeFile } = await import('xlsx')
-    const ws = utils.json_to_sheet(items.map(x => ({ 酒店省区: x.name, 当前在营门店数: x.rows.length, 预订率: x.bookingRate, 预订率环比: x.bookingRateChange, 同期同提前期预订率: x.sameLeadBookingRate, 同提前期预订率差异: x.sameLeadBookingRateGap, 同期OCC: x.lastOcc, 在手ADR: x.adr, 在手ADR环比: x.adrChange, 同期同提前期在手ADR: x.sameLeadAdr, 同提前期ADR差异: x.sameLeadAdrGap, 理论RP: x.rp, 理论RP环比: x.rpChange, 同期同提前期理论RP: x.sameLeadRp, 同提前期理论RP差异: x.sameLeadRpGap, 同期RP: x.lastRp, 满房数: x.rows.filter(r => (r.bookingRate || 0) >= 1).length, 零预定数: zeroCount(x.rows) })))
+    const ws = utils.json_to_sheet(items.map(x => ({ 酒店省区: x.name, 当前在营门店数: x.rows.length, 预订率: x.bookingRate, 预订率环比: x.bookingRateChange, 同期开盘预订率: x.sameLeadBookingRate, 同期开盘预订率差异: x.sameLeadBookingRateGap, 同期OCC: x.lastOcc, 在手ADR: x.adr, 在手ADR环比: x.adrChange, 同期开盘在手ADR: x.sameLeadAdr, 同期开盘ADR差异: x.sameLeadAdrGap, 理论RP: x.rp, 理论RP环比: x.rpChange, 同期开盘理论RP: x.sameLeadRp, 同期开盘理论RP差异: x.sameLeadRpGap, 同期RP: x.lastRp, 满房数: x.rows.filter(r => (r.bookingRate || 0) >= 1).length, 零预定数: zeroCount(x.rows) })))
     const wb = utils.book_new(); utils.book_append_sheet(wb, ws, '省区概览'); writeFile(wb, '省区数据概览.xlsx')
   }
   return <section className="light-card province-overview"><div className="light-card-head"><div><h2>省区数据概览</h2><p>当前门店数仅统计在营门店；点击列头排序、点击行下钻</p></div><div className="matrix-head-actions"><ChannelColorLegend/><button className="table-export" onClick={exportRows}><Download/>导出当前结果</button></div></div>
