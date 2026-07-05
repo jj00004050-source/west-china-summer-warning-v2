@@ -1,8 +1,8 @@
-import { BarChart3, Building2, ChevronDown, Download, Home, Map, RotateCcw, Search, Store, Users } from 'lucide-react'
+import { BarChart3, Building2, ChevronDown, Download, Flame, Home, Map, RotateCcw, Search, Store, Users } from 'lucide-react'
 import type { Filters, Hotel, SnapshotBatch } from '../types/data'
 
 const ALL = '全部'
-export type DashboardView = 'overview' | 'province' | 'area' | 'store' | 'channel'
+export type DashboardView = 'overview' | 'province' | 'area' | 'store' | 'channel' | 'hotspots'
 export default function LightSidebar({ filters, hotels, batches, channels, onChange, onExport, view, onView }: {
   filters: Filters; hotels: Hotel[]; batches: SnapshotBatch[]; channels: string[]
   onChange: (f: Filters) => void; onExport: () => void; view: DashboardView; onView: (view: DashboardView) => void
@@ -30,7 +30,9 @@ export default function LightSidebar({ filters, hotels, batches, channels, onCha
       <button className={view === 'area' ? 'active' : ''} onClick={() => onView('area')}><Users/>片区视图</button>
       <button className={view === 'store' ? 'active' : ''} onClick={() => onView('store')}><Store/>门店视图</button>
       <button className={view === 'channel' ? 'active' : ''} onClick={() => onView('channel')}><BarChart3/>渠道视图</button>
+      <button className={`hotspot-nav ${view === 'hotspots' ? 'active' : ''}`} onClick={() => onView('hotspots')}><Flame/>暑期收益热点</button>
     </nav>
+    {view !== 'hotspots' && <>
     <div className="scope-card"><div className="scope-card-head"><small>当前层级</small><button onClick={resetFilters} title="清空全部筛选并返回华西总览"><RotateCcw/>重置筛选</button></div><b>{filters.store !== ALL ? filters.store : filters.revenueZone !== ALL ? filters.revenueZone : filters.district !== ALL ? filters.district : filters.city !== ALL ? filters.city : filters.area !== ALL ? filters.area : filters.province !== ALL ? filters.province : '华西大区'}</b><span>商圈口径：收益管理商圈</span></div>
     <section><h3>层级筛选</h3>
       {select('province', '酒店省区', [...new Set(operatingHotels.map(h => h.province).filter(Boolean))])}
@@ -46,5 +48,6 @@ export default function LightSidebar({ filters, hotels, batches, channels, onCha
       <label><span>是否直营</span><div><select value={filters.directOperation} onChange={event => change('directOperation', event.target.value)}><option>{ALL}</option><option>直营店</option><option>非直营店</option></select><ChevronDown/></div></label>
     </section>
     <div className="side-actions"><button className="primary" onClick={() => onChange({ ...filters })}><Search/>查询</button><button onClick={resetFilters}><RotateCcw/>重置</button><button className="wide" onClick={onExport}><Download/>导出当前视图</button><button className="wide ghost" onClick={() => { change('province', ALL); onView('overview') }}><Building2/>返回华西总览</button></div>
+    </>}
   </aside>
 }

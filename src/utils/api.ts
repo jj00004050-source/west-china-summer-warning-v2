@@ -19,6 +19,7 @@ import { channelGroup } from './channels'
 import { buildComparisonRows, buildMetricRows } from './metrics'
 import { buildStoreInsights } from './storeInsights'
 import { mergePreviousByTargetDate, previousFinalAsBatch } from './snapshotVersions'
+import type { RevenueHotspotData, RevenueHotspotManifest } from '../types/hotspots'
 
 const configuredBase = String(import.meta.env.VITE_API_BASE || '').replace(/\/$/, '')
 const API_BASE = configuredBase || (import.meta.env.DEV && location.port === '5173' ? 'http://localhost:8787' : '')
@@ -380,6 +381,57 @@ export async function saveServerData(data: StoredData, onProgress?: (progress: S
   const saved = { ...data, version: result.version || data.version }
   lastRemoteData = saved
   return saved
+}
+
+export async function fetchHotspotData(): Promise<RevenueHotspotData | null> {
+  const res = await request('/api/hotspots')
+  if (res.status === 404) return null
+  if (!res.ok) throw new Error(await jsonError(res, '无法读取暑期收益热点数据'))
+  const payload = await res.json()
+  if (!payload?.manifest) return Array.isArray(payload?.rows) && payload?.summary ? payload as RevenueHotspotData : null
+  const manifest = payload.manifest as RevenueHotspotManifest
+  const [summaryChunks, rowChunks] = await Promise.all([
+    Promise.all(manifest.arrays.summary.map(key => loadRemoteChunk<RevenueHotspotData['summary']>(key))),
+    Promise.all(manifest.arrays.rows.map(key => loadRemoteChunk<RevenueHotspotData['rows'][number]>(key))),
+  ])
+  const summary = summaryChunks.flat()[0]
+  if (!summary) throw new Error('热点汇总数据块缺失')
+  return { version: manifest.version, summary, rows: rowChunks.flat() }
+}
+
+export async function saveHotspotData(data: RevenueHotspotData, onProgress?: (progress: SaveProgress) => void) {
+  if (!USE_VERSIONED_REMOTE) {
+    const res = await request('/api/admin/hotspots', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    })
+    if (!res.ok) throw new Error(await jsonError(res, '热点数据保存失败'))
+    return data
+  }
+  const tracker: UploadTracker = { completed: 0, total: 0, active: 0, waiters: [], report: onProgress }
+  const [summary, rows] = await Promise.all([
+    uploadChunks([data.summary], undefined, tracker),
+    uploadChunks(data.rows, undefined, tracker),
+  ])
+  const manifest: RevenueHotspotManifest = {
+    schemaVersion: 1,
+    version: data.version,
+    arrays: { summary, rows },
+  }
+  onProgress?.({
+    completed: tracker.completed,
+    total: tracker.total,
+    phase: 'manifest',
+    message: '热点数据块已保存，正在切换线上最新版本',
+  })
+  const res = await request('/api/admin/hotspots/publish', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(manifest),
+  })
+  if (!res.ok) throw new Error(await jsonError(res, '热点版本发布失败'))
+  return data
 }
 
 export async function fetchBroadcastState(): Promise<BroadcastState> {

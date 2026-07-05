@@ -11,6 +11,7 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const dataDir = process.env.DATA_DIR || join(root, 'server', 'data')
 const dataFile = join(dataDir, 'store.json')
 const broadcastFile = join(dataDir, 'broadcast.json')
+const hotspotFile = join(dataDir, 'hotspots.json')
 const port = Number(process.env.PORT || 8787)
 const empty = { hotels: [], lastYear: [], sameLeadSnapshots: [], renovations: [], batches: [], currentBaseDate: '', previousFinalSnapshot: undefined, mappings: {}, channelMappings: {}, qualityIssues: [], settings: { countMissingBookingAsZero: true } }
 const emptyBroadcast = { config: DEFAULT_BROADCAST_CONFIG, history: [] }
@@ -38,6 +39,7 @@ const withLocalVersion = data => ({ ...empty, ...data, version: localVersion({ .
 await mkdir(dataDir, { recursive: true })
 if (!existsSync(dataFile)) await writeFile(dataFile, JSON.stringify(empty, null, 2))
 if (!existsSync(broadcastFile)) await writeFile(broadcastFile, JSON.stringify(emptyBroadcast, null, 2))
+if (!existsSync(hotspotFile)) await writeFile(hotspotFile, 'null')
 const readStore = async () => {
   try { return withLocalVersion(JSON.parse(await readFile(dataFile, 'utf8'))) } catch { return withLocalVersion(empty) }
 }
@@ -57,6 +59,14 @@ const writeBroadcast = data => {
   const next = { config: { ...DEFAULT_BROADCAST_CONFIG, ...(data.config || {}) }, history: Array.isArray(data.history) ? data.history.slice(0, 100) : [] }
   broadcastWriteQueue = broadcastWriteQueue.then(() => writeFile(broadcastFile, JSON.stringify(next, null, 2)))
   return broadcastWriteQueue
+}
+const readHotspots = async () => {
+  try { return JSON.parse(await readFile(hotspotFile, 'utf8')) } catch { return null }
+}
+let hotspotWriteQueue = Promise.resolve()
+const writeHotspots = data => {
+  hotspotWriteQueue = hotspotWriteQueue.then(() => writeFile(hotspotFile, JSON.stringify(data)))
+  return hotspotWriteQueue
 }
 const existing = await readStore()
 const needsHotelEnrichment = existing.hotels.some(hotel => hotel.operationType == null || hotel.managementType == null)
@@ -98,6 +108,11 @@ app.use((req, res, next) => {
 })
 app.use(express.json({ limit: '300mb' }))
 app.get('/api/data', async (_req, res) => res.json(await readStore()))
+app.get('/api/hotspots', async (_req, res) => {
+  const hotspots = await readHotspots()
+  if (!hotspots) return res.status(404).json({ error: '尚未上传暑期收益热点数据' })
+  res.json(hotspots)
+})
 app.get('/api/admin/session', (_req, res) => res.json({ authenticated: true }))
 app.post('/api/admin/login', (_req, res) => res.json({ ok: true, authenticated: true }))
 app.post('/api/admin/logout', (_req, res) => res.json({ ok: true }))
@@ -106,6 +121,12 @@ app.put('/api/admin/data', requireAdmin, async (req, res) => {
   if (!next || !Array.isArray(next.hotels) || !Array.isArray(next.lastYear) || !Array.isArray(next.batches)) return res.status(400).json({ error: '数据结构不正确' })
   const versioned = withLocalVersion({ ...next, version: undefined })
   await writeStore(versioned); res.json({ ok: true, updatedAt: versioned.version.updatedAt, version: versioned.version })
+})
+app.put('/api/admin/hotspots', requireAdmin, async (req, res) => {
+  const next = req.body
+  if (!next?.version?.id || !next?.summary || !Array.isArray(next?.rows)) return res.status(400).json({ error: '热点数据结构不正确' })
+  await writeHotspots(next)
+  res.json({ ok: true, version: next.version })
 })
 app.get('/api/admin/broadcast', requireAdmin, async (_req, res) => res.json(await readBroadcast()))
 app.put('/api/admin/broadcast', requireAdmin, async (req, res) => {

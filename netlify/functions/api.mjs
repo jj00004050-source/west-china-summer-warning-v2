@@ -5,6 +5,7 @@ const STORE_NAME = 'west-china-dashboard'
 const CURRENT_VERSION_KEY = 'currentVersion'
 const PREVIOUS_VERSION_KEY = 'previousVersion'
 const BROADCAST_KEY = 'broadcastState'
+const HOTSPOT_VERSION_KEY = 'hotspotCurrentVersion'
 const store = () => getStore({ name: STORE_NAME, consistency: 'strong' })
 const MAX_CHUNK_BYTES = 768 * 1024
 const json = (value, status = 200, headers = {}) => Response.json(value, {
@@ -17,6 +18,7 @@ const normalizePath = pathname => pathname.startsWith('/.netlify/functions/api')
 const requireAdmin = () => null
 const validChunkKey = key => /^chunks\/[a-f0-9]{64}$/.test(String(key || ''))
 const versionManifestKey = versionId => `versions/${String(versionId).replace(/[^a-zA-Z0-9._-]/g, '')}/manifest`
+const hotspotManifestKey = versionId => `hotspot-versions/${String(versionId).replace(/[^a-zA-Z0-9._-]/g, '')}/manifest`
 const allChunkKeys = manifest => [
   ...(manifest?.arrays?.hotels || []),
   ...(manifest?.arrays?.lastYear || []),
@@ -29,6 +31,10 @@ const allChunkKeys = manifest => [
   ...(manifest?.publicBatches || []).flatMap(batch => batch.rowKeys || []),
   ...(manifest?.previousFinalSnapshot?.rowKeys || []),
   ...(manifest?.publicPreviousFinalSnapshot?.rowKeys || []),
+]
+const hotspotChunkKeys = manifest => [
+  ...(manifest?.arrays?.summary || []),
+  ...(manifest?.arrays?.rows || []),
 ]
 const loadArray = async (blobStore, keys = []) => (await Promise.all(keys.map(key => blobStore.get(key, { type: 'json', consistency: 'strong' })))).flatMap(value => Array.isArray(value) ? value : [])
 const hydrate = async (blobStore, manifest) => {
@@ -101,6 +107,11 @@ const cleanupOldVersions = async (blobStore, currentPointer, previousPointer) =>
       const manifest = await blobStore.get(key, { type: 'json', consistency: 'strong' })
       allChunkKeys(manifest).forEach(chunkKey => retainedChunkKeys.add(chunkKey))
     }
+    const hotspotPointer = await blobStore.get(HOTSPOT_VERSION_KEY, { type: 'json', consistency: 'strong' })
+    if (hotspotPointer?.manifestKey) {
+      const hotspotManifest = await blobStore.get(hotspotPointer.manifestKey, { type: 'json', consistency: 'strong' })
+      hotspotChunkKeys(hotspotManifest).forEach(chunkKey => retainedChunkKeys.add(chunkKey))
+    }
     const [{ blobs: manifests }, { blobs: chunks }] = await Promise.all([
       blobStore.list({ prefix: 'versions/' }),
       blobStore.list({ prefix: 'chunks/' }),
@@ -114,6 +125,33 @@ const cleanupOldVersions = async (blobStore, currentPointer, previousPointer) =>
   }
 }
 
+const cleanupOldHotspots = async (blobStore, currentHotspotPointer) => {
+  try {
+    const retainedChunkKeys = new Set()
+    const currentPointer = await blobStore.get(CURRENT_VERSION_KEY, { type: 'json', consistency: 'strong' })
+    const previousPointer = await blobStore.get(PREVIOUS_VERSION_KEY, { type: 'json', consistency: 'strong' })
+    for (const pointer of [currentPointer, previousPointer]) {
+      if (!pointer?.manifestKey) continue
+      const manifest = await blobStore.get(pointer.manifestKey, { type: 'json', consistency: 'strong' })
+      allChunkKeys(manifest).forEach(chunkKey => retainedChunkKeys.add(chunkKey))
+    }
+    const currentManifest = currentHotspotPointer?.manifestKey
+      ? await blobStore.get(currentHotspotPointer.manifestKey, { type: 'json', consistency: 'strong' })
+      : null
+    hotspotChunkKeys(currentManifest).forEach(chunkKey => retainedChunkKeys.add(chunkKey))
+    const [{ blobs: manifests }, { blobs: chunks }] = await Promise.all([
+      blobStore.list({ prefix: 'hotspot-versions/' }),
+      blobStore.list({ prefix: 'chunks/' }),
+    ])
+    await Promise.all([
+      ...manifests.filter(item => item.key !== currentHotspotPointer?.manifestKey).map(item => blobStore.delete(item.key)),
+      ...chunks.filter(item => !retainedChunkKeys.has(item.key)).map(item => blobStore.delete(item.key)),
+    ])
+  } catch (error) {
+    console.warn('旧热点版本清理未完成：', error)
+  }
+}
+
 export default async request => {
   const url = new URL(request.url)
   const path = normalizePath(url.pathname)
@@ -122,6 +160,13 @@ export default async request => {
     if (request.method === 'GET' && path === '/api/data') {
       const { manifest } = await readCurrent(blobStore)
       return json({ version: manifest?.version || null, manifest: manifest || null })
+    }
+    if (request.method === 'GET' && path === '/api/hotspots') {
+      const pointer = await blobStore.get(HOTSPOT_VERSION_KEY, { type: 'json', consistency: 'strong' })
+      if (!pointer?.manifestKey) return json({ version: null, manifest: null }, 404)
+      const manifest = await blobStore.get(pointer.manifestKey, { type: 'json', consistency: 'strong' })
+      if (!manifest) return json({ error: '热点版本清单不存在' }, 404)
+      return json({ version: manifest.version, manifest })
     }
     if (request.method === 'GET' && path === '/api/data/chunk') {
       const key = url.searchParams.get('key')
@@ -182,6 +227,24 @@ export default async request => {
       if (prior?.manifestKey) await blobStore.setJSON(PREVIOUS_VERSION_KEY, prior)
       await blobStore.setJSON(CURRENT_VERSION_KEY, pointer)
       await cleanupOldVersions(blobStore, pointer, prior)
+      return json({ ok: true, version: manifest.version })
+    }
+    if (request.method === 'POST' && path === '/api/admin/hotspots/publish') {
+      const denied = requireAdmin(request); if (denied) return denied
+      const manifest = await request.json()
+      if (manifest?.schemaVersion !== 1 || !manifest?.version?.id || !manifest?.arrays ||
+        !Array.isArray(manifest?.arrays?.summary) || !Array.isArray(manifest?.arrays?.rows)) {
+        return json({ error: '热点版本清单结构不正确' }, 400)
+      }
+      const chunkKeys = hotspotChunkKeys(manifest)
+      if (!chunkKeys.length || chunkKeys.some(key => !validChunkKey(key))) return json({ error: '热点版本清单包含无效数据块' }, 400)
+      const missing = await missingChunkKeys(blobStore, chunkKeys)
+      if (missing.length) return json({ error: `仍有 ${missing.length} 个热点数据块未成功保存` }, 409)
+      const manifestKey = hotspotManifestKey(manifest.version.id)
+      const pointer = { version: manifest.version, manifestKey }
+      await blobStore.setJSON(manifestKey, manifest)
+      await blobStore.setJSON(HOTSPOT_VERSION_KEY, pointer)
+      await cleanupOldHotspots(blobStore, pointer)
       return json({ ok: true, version: manifest.version })
     }
     if (path.startsWith('/api/admin/broadcast')) {

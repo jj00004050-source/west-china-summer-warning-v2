@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { AlertTriangle, CalendarDays, CircleHelp, Clock3, Database, FileClock, Hotel, Layers3, RefreshCw } from 'lucide-react'
 import type { ComparisonRow, Filters, Hotel as HotelRecord, MetricRow, SameLeadComparisonRow, SnapshotBatch, StoredData } from './types/data'
 import { EMPTY_DATA } from './utils/storage'
@@ -24,6 +24,7 @@ import { matchesRenovationFilter, matchesStoreType, type RenovationFilter, type 
 import { matchesBookingRateRange, type BookingRateRange } from './utils/bookingRateRanges'
 
 const ALL = '全部'
+const SummerHotspotsPage = lazy(() => import('./components/SummerHotspotsPage'))
 const MISSING_OPENING_DATE = '开业日期缺失'
 const openingAgeOption = (openDate: string, targetDate: string) => {
   if (!openDate || !targetDate) return MISSING_OPENING_DATE
@@ -229,6 +230,7 @@ export default function App() {
     : view === 'province' ? <div className="view-stack">{map}<ProvinceCityMatrix rows={rows} comparisonRows={comparisonRows} sameLeadRows={sameLeadRows} channelRows={channelRows} onCity={city => setFilters(f => ({ ...f, city, district: ALL, revenueZone: ALL, store: ALL }))}/></div>
     : view === 'area' ? <div className="view-stack">{areaBreadcrumb}<AreaRevenueZoneMatrix rows={rows} comparisonRows={comparisonRows} sameLeadRows={sameLeadRows} channelRows={channelRows} onRevenueZone={revenueZone => drillZone(revenueZone)}/></div>
     : view === 'store' ? <div className="view-stack">{areaBreadcrumb}<StoreSpecialtyPanel rows={bookingRateFilteredStoreRows} comparisonRows={comparisonRows} channelRows={channelRows} value={storeTypeFilter} renovationFilter={renovationFilter} openingAgeOptions={openingAgeOptions} openingAgeFilter={openingAgeFilter} priceSettings={data.settings?.priceAdvice} onChange={next => { setStoreTypeFilter(next); setRenovationFilter('全部') }} onRenovationChange={next => { setRenovationFilter(next); setStoreTypeFilter('全部门店') }} onOpeningAgeChange={setOpeningAgeFilter}/><StoreChannelComposition stores={typeFilteredStoreRows} store={typedFocusedStore} rows={typedFocusedStore ? typeFilteredChannelRows.filter(row => row.whCode === typedFocusedStore.whCode) : []} previousRows={typedFocusedStore ? typeFilteredPreviousChannelRows.filter(row => row.whCode === typedFocusedStore.whCode) : []} comparisonLabel={comparisonLabel} onDetail={setSelectedStore}/><StoreWarningTable rows={typeFilteredStoreRows} benchmarkRows={rows} comparisonRows={comparisonRows} channelRows={typeFilteredChannelRows} comparisonLabel={comparisonLabel} priceSettings={data.settings?.priceAdvice} storeTypeFilter={storeTypeFilter} renovationFilter={renovationFilter} bookingRateRanges={bookingRateRanges} onBookingRateRangesChange={setBookingRateRanges} onStore={store => { setFocusedStoreCode(store.whCode); setSelectedStore(store) }}/></div>
+    : view === 'hotspots' ? <Suspense fallback={<div className="hotspot-state"><RefreshCw/>正在加载热点页面…</div>}><SummerHotspotsPage/></Suspense>
     : <div className="view-stack"><div className="channel-summary-notice">渠道视图使用上传时生成的轻量汇总数据，不下载渠道原始明细。</div><ChannelDrilldownView rows={typeFilteredChannelRows} previousRows={typeFilteredPreviousChannelRows} comparisonLabel={comparisonLabel}/></div>
   return <div className="light-app">
     <LightSidebar filters={filters} hotels={data.hotels} batches={data.batches} channels={channels} onChange={setFilters} onExport={exportView} view={view} onView={next => {
@@ -237,7 +239,7 @@ export default function App() {
       if (next === 'store' || next === 'channel') setFilters(f => ({ ...f, channel: ALL }))
     }}/>
     <main className="light-main">
-      <header className="light-header"><div><h1>华西区域暑期预警数据看板</h1><p>轻量驾驶舱 · 未来7天预订 · 周对周同期 · 渠道结构</p></div><div className="header-meta"><em className={versionInfo?.source === '线上最新版本' ? 'online' : ''}><Database/>{versionInfo?.source || '统一数据源'}</em><button onClick={() => setShowMethodology(v => !v)} title="查看本页实际使用的日期、门店范围与环比基准"><CircleHelp/>数据口径</button></div></header>
+      <header className="light-header"><div><h1>{view === 'hotspots' ? '华西暑期收益热点' : '华西区域暑期预警数据看板'}</h1><p>{view === 'hotspots' ? '未来热点日历 · 城市需求机会 · 按需加载' : '轻量驾驶舱 · 未来7天预订 · 周对周同期 · 渠道结构'}</p></div><div className="header-meta"><em className={versionInfo?.source === '线上最新版本' ? 'online' : ''}><Database/>{versionInfo?.source || '统一数据源'}</em>{view !== 'hotspots' && <button onClick={() => setShowMethodology(v => !v)} title="查看本页实际使用的日期、门店范围与环比基准"><CircleHelp/>数据口径</button>}</div></header>
       <div className="data-version-bar">
         <span><Clock3/><small>数据更新时间</small><b>{versionUpdatedAt ? new Date(versionUpdatedAt).toLocaleString('zh-CN', { hour12: false }) : '--'}</b></span>
         <span><Layers3/><small>当前版本号</small><b>{versionInfo?.versionNumber || '--'}</b></span>
@@ -245,8 +247,8 @@ export default function App() {
         <span><CalendarDays/><small>覆盖日期</small><b>{coverageStart && coverageEnd ? `${coverageStart} 至 ${coverageEnd}` : '--'}</b></span>
         <span className="source"><FileClock/><small>数据来源</small><b>{versionInfo?.source || '统一数据源'}</b></span>
       </div>
-      <div className="context-bar"><span><Hotel/>当前范围：<b>{filters.province === ALL ? '华西大区' : filters.province}</b></span><div className="day-tabs">{selectedDayTabs.map(item => <button key={item.dayOffset} className={filters.dayOffset === item.dayOffset ? 'active' : ''} onClick={() => setFilters(f => ({ ...f, dayOffset: item.dayOffset }))}><b>{item.dayOffset}</b><small>{item.targetDate.slice(5)}</small></button>)}</div><span><CalendarDays/>同期口径：<b>周对周（-364天）</b></span></div>
-      {showMethodology && <section className="methodology-panel">
+      {view !== 'hotspots' && <div className="context-bar"><span><Hotel/>当前范围：<b>{filters.province === ALL ? '华西大区' : filters.province}</b></span><div className="day-tabs">{selectedDayTabs.map(item => <button key={item.dayOffset} className={filters.dayOffset === item.dayOffset ? 'active' : ''} onClick={() => setFilters(f => ({ ...f, dayOffset: item.dayOffset }))}><b>{item.dayOffset}</b><small>{item.targetDate.slice(5)}</small></button>)}</div><span><CalendarDays/>同期口径：<b>周对周（-364天）</b></span></div>}
+      {view !== 'hotspots' && showMethodology && <section className="methodology-panel">
         <div><small>当前目标日期</small><b>{targetDate || '--'}</b></div>
         <div><small>实际同期日期</small><b>{comparison.comparisonDate || '--'}</b><em>{comparison.usedManualMapping ? '日期映射表' : '目标日期 -364天'}</em></div>
         <div className={sameLeadComparison.missing ? 'methodology-warning' : ''}><small>同期开盘日期</small><b>{sameLeadComparison.comparisonDate || '--'}</b><em>{sameLeadRows.length ? `快照表匹配 ${sameLeadRows.length} 家` : '无同期开盘数据'}</em></div>
@@ -258,11 +260,11 @@ export default function App() {
         <div className={missingCurrentHotels.length ? 'methodology-warning' : ''}><small>缺失预订数据</small><b>{missingCurrentHotels.length} 家</b><em>{countMissingAsZero ? '默认计入0预定数' : '当前未计入0预定数'}</em></div>
         <div className={comparison.missing ? 'methodology-warning' : ''}><small>同期数据状态</small><b>{comparison.missing ? '未找到，指标显示 --' : '已匹配'}</b><em>{comparison.missing ? '请检查异常清单' : '未使用当前门店范围过滤'}</em></div>
       </section>}
-      {!selected ? <div className="light-empty"><AlertTriangle/><h2>暂无预订率数据</h2><p>请联系管理员在 /admin 上传最新文件。</p></div> : <>
+      {view === 'hotspots' ? viewContent : !selected ? <div className="light-empty"><AlertTriangle/><h2>暂无预订率数据</h2><p>请联系管理员在 /admin 上传最新文件。</p></div> : <>
         <KpiGroupCards current={kpiCurrent} previous={kpiPrevious} hasPrevious={kpiHasPrevious} comparisonLabel={comparisonLabel} comparisonTooltip={comparisonTooltip} fullCount={kpiFullCount} zeroCount={kpiZeroCount} prevFullCount={kpiPrevFullCount} prevZeroCount={kpiPrevZeroCount}/>
         {viewContent}
       </>}
-      <footer>当前门店数口径：当前在营门店 · 同期对比口径：去年同期全量门店经营数据 · 同期口径：周对周，默认目标日期 -364天</footer>
+      <footer>{view === 'hotspots' ? '热点Excel上传后解析一次并覆盖当前版本 · 热点页面按需加载 · 明细仅渲染当前分页' : '当前门店数口径：当前在营门店 · 同期对比口径：去年同期全量门店经营数据 · 同期口径：周对周，默认目标日期 -364天'}</footer>
     </main>
     <StoreDetailDrawer store={selectedStore} allRows={scoped} comparisonRows={comparisonRows} channelRows={channelRows} comparisonLabel={comparisonLabel} priceSettings={data.settings?.priceAdvice} onClose={() => setSelectedStore(null)}/>
   </div>

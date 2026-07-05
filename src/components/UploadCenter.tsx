@@ -9,6 +9,7 @@ import DataQualityPanel from './DataQualityPanel'
 import { applySnapshotUpload } from '../utils/snapshotVersions'
 import { DEFAULT_PRICE_ADVICE_SETTINGS } from '../utils/priceAdvice'
 import type { SaveProgress } from '../utils/api'
+import HotspotUploadPanel from './HotspotUploadPanel'
 
 const kinds: Array<[DataKind, string, string]> = [
   ['hotels', '酒店维度表', '系统预置 · 低频维护'],
@@ -157,6 +158,7 @@ export default function UploadCenter({ data, onData }: { data: StoredData; onDat
     <div className="upload-hero"><div><span className="eyebrow">DATA OPERATIONS CENTER</span><h2>数据上传中心</h2><p>自动识别字段、校验数据质量，并将确认后的数据写入统一服务端。</p></div>
       <div className="upload-summary"><span><b>{data.hotels.length}</b>门店</span><span><b>{data.lastYear.length}</b>同期最终记录</span><span><b>{data.sameLeadSnapshots?.length || 0}</b>同期开盘快照</span><span><b>{data.batches.length}</b>当前快照批次</span><span><b>{data.renovations?.length || 0}</b>改造记录</span></div>
     </div>
+    <HotspotUploadPanel/>
     <div className="upload-grid"><section className="panel upload-main">
       <div className="template-actions">{kinds.map(([k, label]) => <button key={k} onClick={() => downloadTemplate(k)}>下载{label}模板</button>)}</div>
       <div className="kind-tabs">{kinds.map(([k, label, code]) => <button className={kind === k ? 'active' : ''} onClick={() => selectKind(k)} key={k}><FileSpreadsheet size={18}/><span>{label}<small>{code}</small></span>{kindCount(k) > 0 && <CheckCircle2 size={16}/>}</button>)}</div>
