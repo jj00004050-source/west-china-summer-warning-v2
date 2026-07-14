@@ -164,11 +164,11 @@ export default function App() {
   const pm = aggregate(prevRows)
   const currentPriorHasTarget = !!currentVersionPrevious?.rows.some(r => r.targetDate === targetDate)
   const archiveHasTarget = !!archivedPrevious?.rows.some(r => r.targetDate === targetDate)
-  const comparisonLabel = rawPrevRows.length ? (currentPriorHasTarget ? '较上一跑批' : archiveHasTarget ? '较上一版末次' : '暂无上一版') : '暂无上一版'
+  const comparisonLabel = rawPrevRows.length ? (currentPriorHasTarget ? '较上一跑批' : archiveHasTarget ? '较上一版跑批' : '暂无上一版') : '暂无上一版'
   const comparisonTooltip = rawPrevRows.length && currentPriorHasTarget
     ? `当前目标入住日期${targetDate}，当前跑批${selected?.batchTime || '--'}，对比当前版本跑批${currentVersionPrevious?.batchTime || '--'}`
     : rawPrevRows.length && archiveHasTarget
-      ? `当前目标入住日期${targetDate}，对比上一版同目标入住日期的末次跑批（上一版基准日${data.previousFinalSnapshot?.baseDate || '--'}）`
+      ? `当前目标入住日期${targetDate}，对比上一版同目标入住日期保存跑批（上一版基准日${data.previousFinalSnapshot?.baseDate || '--'}）`
       : `目标入住日期${targetDate || '--'}暂无上一版数据`
   const channels = [...new Set(['各OTA','线上直销','线下直销', ...data.batches.flatMap(b => b.rows.flatMap(r => [r.channelLevel1, r.channelLevel2, r.channelLevel3, r.channel]).filter(Boolean) as string[])])]
   const currentHotelIds = new Set(scoped.map(r => r.whCode))

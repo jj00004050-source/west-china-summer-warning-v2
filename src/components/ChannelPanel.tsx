@@ -55,8 +55,8 @@ export default function ChannelPanel({ rows, previousRows = [], comparisonLabel 
     <h3>OTA渠道详情</h3>
     <div className="ota-bars">{['携程','美团','飞猪'].map(name => {
       const x = ota.find(v => v.name === name); const prev = previousOta.find(v => v.name === name)
-      const delta = hasPrevious ? (x?.share || 0) - (prev?.share || 0) : null
-      return <button key={name} onClick={() => onChannel(name)}><b><i style={{background:channelColor(name)}}/>{name}</b><i><em style={{width: `${Math.min(100, (x?.share || 0) * 100)}%`,background:channelColor(name)}}/></i><span>{fmtPct(x?.share)}<small>贡献 {fmtPct(x?.contribution)} · ADR {fmtMoney(x?.adr)}</small></span><strong className={(delta || 0) < 0 ? 'negative' : 'positive'}>{fmtPp(delta)}</strong></button>
+      const contributionDelta = hasPrevious ? (x?.contribution || 0) - (prev?.contribution || 0) : null
+      return <button key={name} onClick={() => onChannel(name)} title={hasPrevious ? `渠道贡献${comparisonLabel} ${fmtPp(contributionDelta)}` : '暂无同目标入住日期的上一版数据'}><b><i style={{background:channelColor(name)}}/>{name}</b><i><em style={{width: `${Math.min(100, (x?.share || 0) * 100)}%`,background:channelColor(name)}}/></i><span>{fmtPct(x?.share)}<small>贡献 {fmtPct(x?.contribution)} · ADR {fmtMoney(x?.adr)}</small></span><strong className={(contributionDelta || 0) < 0 ? 'negative' : 'positive'}>{fmtPp(contributionDelta)}</strong></button>
     })}</div>
   </section>
 }

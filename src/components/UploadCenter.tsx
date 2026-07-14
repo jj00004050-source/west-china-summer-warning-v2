@@ -15,7 +15,7 @@ const kinds: Array<[DataKind, string, string]> = [
   ['hotels', '酒店维度表', '系统预置 · 低频维护'],
   ['lastYear', '去年同期暑期经营表', '系统预置 · 最终经营基准'],
   ['sameLeadSnapshots', '同期开盘预订快照表', '去年周对周 · 开盘预订基准'],
-  ['snapshots', '未来7天预订快照表', '同基准日覆盖 · 保留上一版末次'],
+  ['snapshots', '未来7天预订快照表', '上传最新跑批 · 保留上一版环比'],
   ['renovations', '改造店明细', '可选维护 · 按WH编码关联'],
 ]
 const warningMessage = (kind: DataKind) => kind === 'hotels'
@@ -115,7 +115,8 @@ export default function UploadCenter({ data, onData }: { data: StoredData; onDat
       const warningSuffix = found.some(issue => issue.level === 'warning') ? `；${warningMessage(kind)}` : ''
       if (kind === 'snapshots') {
         const dates = [...new Set((saveRows as StoredData['batches'][number]['rows']).map(row => row.targetDate).filter(Boolean))].sort()
-        setMessage(`上传成功：D0 已更新为 ${dates[0] || '--'}，覆盖 ${dates[0] || '--'} 至 ${dates.at(-1) || '--'}，共保存 ${saveRows.length} 行${warningSuffix}`)
+        const currentBatch = next.batches.at(-1)
+        setMessage(`上传成功：D0 已更新为 ${dates[0] || '--'}，覆盖 ${dates[0] || '--'} 至 ${dates.at(-1) || '--'}，当前仅发布跑批${currentBatch?.batchTime || '--'}，共保存 ${currentBatch?.rows.length || 0} 行${warningSuffix}`)
       } else setMessage(`上传成功：服务端已保存 ${saveRows.length} 行标准数据${warningSuffix}`)
       setRaw([])
     }
@@ -170,7 +171,7 @@ export default function UploadCenter({ data, onData }: { data: StoredData; onDat
       {message && <div className={`upload-message ${/失败|错误|阻断/.test(message) ? 'error' : 'success'}`}>{message}</div>}
     </section>
     <aside className="panel batch-history"><div className="panel-title compact"><div><span className="eyebrow">SNAPSHOT HISTORY</span><h2>快照批次历史</h2></div><History size={19}/></div>
-      <div className="batch-list">{[...data.batches].reverse().map(b => <div key={b.id}><span className="batch-time">{b.batchTime}</span><span><b>{data.currentBaseDate || b.snapshotDate}</b><small>当前版本 · {b.fileName} · {b.rows.length}行</small></span><button title="删除批次" onClick={() => onData({ ...data, batches: data.batches.filter(x => x.id !== b.id) })}><Trash2 size={15}/></button></div>)}{data.previousFinalSnapshot && <div><span className="batch-time">末次</span><span><b>{data.previousFinalSnapshot.baseDate}</b><small>上一版保留 · {data.previousFinalSnapshot.rows.length}行</small></span></div>}{!data.batches.length && <div className="empty-mini">尚未上传快照</div>}</div>
+      <div className="batch-list">{[...data.batches].reverse().map(b => <div key={b.id}><span className="batch-time">{b.batchTime}</span><span><b>{data.currentBaseDate || b.snapshotDate}</b><small>当前发布跑批 · {b.fileName} · {b.rows.length}行</small></span><button title="删除批次" onClick={() => onData({ ...data, batches: data.batches.filter(x => x.id !== b.id) })}><Trash2 size={15}/></button></div>)}{data.previousFinalSnapshot && <div><span className="batch-time">环比</span><span><b>{data.previousFinalSnapshot.baseDate}</b><small>上一版跑批基准 · {data.previousFinalSnapshot.rows.length}行</small></span></div>}{!data.batches.length && <div className="empty-mini">尚未上传快照</div>}</div>
       <div className="data-actions"><button onClick={exportClean}>导出标准数据</button><button onClick={() => downloadJson(data)}>导出数据备份</button><button onClick={() => backupRef.current?.click()}>导入备份恢复</button><input hidden ref={backupRef} type="file" accept=".json" onChange={e => e.target.files?.[0] && restore(e.target.files[0])}/>
       <button className="danger" onClick={() => confirm('确定清空服务端全部经营数据？此操作不可撤销。') && onData({ hotels: [], lastYear: [], sameLeadSnapshots: [], batches: [], currentBaseDate: '', previousFinalSnapshot: undefined, mappings: data.mappings, channelMappings: data.channelMappings, settings: data.settings })}><Trash2 size={14}/>清空全部数据</button></div>
       <label className="missing-zero-setting"><input type="checkbox" checked={data.settings?.countMissingBookingAsZero !== false} onChange={e => onData({ ...data, settings: { ...data.settings, countMissingBookingAsZero: e.target.checked } })}/><span><b>缺失预订门店计入0预定数</b><small>仅针对维度表中当前在营、但目标日期完全无预订记录的门店</small></span></label>
@@ -187,7 +188,7 @@ export default function UploadCenter({ data, onData }: { data: StoredData; onDat
           return <label key={key}><span>{label}</span><div><input type="number" value={percent ? Math.round(raw * 100) : raw} onChange={event => updatePriceSetting(key, Number(event.target.value) / (percent ? 100 : 1))}/><em>{unit}</em></div></label>
         })}</div>
       </section>
-      <div className="local-note"><Database size={16}/><span>基准日取文件内最早“年月日”。同基准日上传整体覆盖；基准日前移时只保留上一版各目标入住日期的末次跑批，用于跨版环比。</span></div>
+      <div className="local-note"><Database size={16}/><span>基准日取文件内最早“年月日”。现在每次只需上传最新跑批；系统发布本次最大跑批，并自动保留上一版同目标入住日期跑批作为环比基准。</span></div>
     </aside></div>
   </main>
 }

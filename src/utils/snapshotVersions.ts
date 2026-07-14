@@ -42,6 +42,12 @@ export function createCurrentBatches(records: SnapshotRecord[], baseDate: string
   })).sort((a, b) => compareBatch(a.batchTime, b.batchTime))
 }
 
+export function createLatestCurrentBatch(records: SnapshotRecord[], baseDate: string, fileName: string, uploadTime = new Date().toISOString()): SnapshotBatch[] {
+  const batches = createCurrentBatches(records, baseDate, fileName, uploadTime)
+  const latest = batches.at(-1)
+  return latest ? [latest] : []
+}
+
 export function capturePreviousFinal(batches: SnapshotBatch[], baseDate: string, sourceFileName = ''): PreviousFinalSnapshot | undefined {
   const allRows = batches.flatMap(batch => batch.rows)
   if (!allRows.length) return undefined
@@ -57,14 +63,14 @@ export function capturePreviousFinal(batches: SnapshotBatch[], baseDate: string,
 export function applySnapshotUpload(data: StoredData, incoming: SnapshotRecord[], fileName: string, uploadTime = new Date().toISOString()): StoredData {
   const normalized = normalizeSnapshotWindow(incoming)
   const oldBaseDate = inferStoredBaseDate(data)
-  const previousFinalSnapshot = oldBaseDate && normalized.baseDate !== oldBaseDate
-    ? capturePreviousFinal(data.batches, oldBaseDate)
+  const previousFinalSnapshot = data.batches.length && oldBaseDate
+    ? capturePreviousFinal(data.batches, oldBaseDate, data.batches.at(-1)?.fileName || '')
     : data.previousFinalSnapshot
   return {
     ...data,
     currentBaseDate: normalized.baseDate,
     previousFinalSnapshot,
-    batches: createCurrentBatches(normalized.records, normalized.baseDate, fileName, uploadTime),
+    batches: createLatestCurrentBatch(normalized.records, normalized.baseDate, fileName, uploadTime),
   }
 }
 
@@ -74,7 +80,7 @@ export function previousFinalAsBatch(snapshot?: PreviousFinalSnapshot): Snapshot
     id: `previous_final_${snapshot.baseDate}`,
     uploadTime: snapshot.savedAt,
     snapshotDate: snapshot.baseDate,
-    batchTime: '末次',
+    batchTime: '上一版',
     fileName: snapshot.sourceFileName,
     rows: snapshot.rows,
   }

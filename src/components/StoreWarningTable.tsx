@@ -326,7 +326,7 @@ export default function StoreWarningTable({ rows, benchmarkRows = rows, comparis
           <p><b>不直接算异常：</b>无同期、新开无可比、商圈未配置、开业日期缺失等属于口径状态；数据待核验属于数据治理提示。</p>
         </div>
       </details>
-      <div className="table-scroll"><table><thead><tr>{th('name', '门店')}{th('province', '省区 / 片区 / 可售房')}{th('bookingRate', '预订率 / 商圈对标')}{th('adr', '在手ADR')}{th('rp', '理论RP')}{th('lastRp', '同期RP')}{th('rpGap', 'RP缺口')}{th('snapshotChange', `RP${comparisonLabel}`)}<th>提价建议</th>{th('otaShare', '渠道占比')}</tr></thead>
+      <div className="table-scroll"><table><thead><tr>{th('name', '门店')}{th('province', '省区 / 片区 / 可售房')}{th('bookingRate', '预订率 / 商圈对标')}{th('adr', '在手ADR')}{th('rp', '理论RP')}{th('lastRp', '同期RP')}{th('rpGap', 'RP缺口')}{th('snapshotChange', `RP${comparisonLabel}`)}{th('otaShare', '提价建议 / 渠道占比')}</tr></thead>
         <tbody>{pageRows.map(({ row, zoneRate, zoneGap, mix, anomaly, priceAdvice, typeProfile, renovationTags }) => <tr className={row.whCode === highlightCode ? 'diagnostic-highlight-row' : priority.has(row.whCode) ? 'diagnostic-priority-row' : ''} key={`${row.whCode}-${row.dayOffset}`} onClick={() => onStore(row)}>
           <td><div className="store-name-line"><span className={`store-risk-grade grade-${anomaly.grade}`}>{GRADE_LABEL[anomaly.grade]}</span><b>{row.name}</b></div><small>{row.whCode}</small>
             <div className="store-tag-groups type-tags">{typeProfile.typeTags.map(tag => <em className="type" key={tag}>{tag}</em>)}{!row.openDate && <em className="status">开业日期缺失</em>}</div>
@@ -337,8 +337,7 @@ export default function StoreWarningTable({ rows, benchmarkRows = rows, comparis
           <td>{fmtMoney(row.adr)}<MetricTrendLines kind="money" change={anomaly.adrChange} sameLeadGap={row.sameLeadAdrGap}/></td><td>{fmtMoney(row.rp)}<MetricTrendLines kind="money" change={anomaly.rpChange} sameLeadGap={row.sameLeadRpGap}/></td><td>{fmtMoney(row.lastRp)}</td>
           <td className={(row.rpGap || 0) < 0 ? 'negative' : 'positive'}>{fmtMoney(row.rpGap)}</td>
           <td className={(anomaly.rpChange || 0) < 0 ? 'negative' : 'positive'}>{anomaly.rpChange == null ? '--' : `${anomaly.rpChange >= 0 ? '↑' : '↓'}${fmtMoney(Math.abs(anomaly.rpChange))}`}</td>
-          <td><div className={`price-advice-cell advice-${priceAdviceTone(priceAdvice.label)}`} title={priceAdvice.reason}><b>{priceAdvice.label}</b><small>{priceAdvice.reason}</small></div></td>
-          <td><ChannelDonut mix={mix}/></td>
+          <td className="advice-channel-cell"><div className={`price-advice-cell advice-${priceAdviceTone(priceAdvice.label)}`} title={priceAdvice.reason}><b>{priceAdvice.label}</b><small>{priceAdvice.reason}</small></div><ChannelDonut mix={mix}/></td>
         </tr>)}</tbody></table>{!pageRows.length && <div className="empty-mini">当前筛选范围暂无门店数据</div>}</div>
       <div className="pagination"><label>每页显示 <select value={pageSize} onChange={event => setPageSize(Number(event.target.value))}><option value={10}>10</option><option value={20}>20</option><option value={50}>50</option></select></label><span>第 {page}/{pages} 页 · 共 {filtered.length} 家</span><button disabled={page <= 1} onClick={() => setPage(page - 1)}>上一页</button><button disabled={page >= pages} onClick={() => setPage(page + 1)}>下一页</button></div>
     </section>

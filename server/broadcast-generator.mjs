@@ -135,8 +135,8 @@ function previousRowsForTarget(data, selected, targetDate) {
   const fallbackRows = archiveRows.filter(row => row.targetDate === targetDate && !primaryCodes.has(row.whCode))
   return {
     rows: [...primaryRows, ...fallbackRows],
-    label: primaryRows.length ? '较上一跑批' : fallbackRows.length ? '较上一版末次' : '暂无上一版',
-    batchTime: primaryRows.length ? primary?.batchTime : fallbackRows.length ? '上一版末次' : '',
+    label: primaryRows.length ? '较上一跑批' : fallbackRows.length ? '较上一版跑批' : '暂无上一版',
+    batchTime: primaryRows.length ? primary?.batchTime : fallbackRows.length ? '上一版跑批' : '',
   }
 }
 
