@@ -26,7 +26,18 @@ const intersects = (row: RevenueHotspotRecord, start: string, end: string) => (!
 const heatRank = { 高: 4, 中: 3, 低: 2, 观察: 1 } as const
 const categories = ['演唱会', '会展', '赛事', '考试', '文旅', '交通', '天气', '节庆会议', '其他']
 
-export default function SummerHotspotsPage() {
+type Props = {
+  anchorDate?: string
+}
+
+const resolveInitialDate = (coverageStart: string, coverageEnd: string, referenceDate: string) => {
+  if (!coverageStart) return referenceDate
+  if (referenceDate < coverageStart) return coverageStart
+  if (coverageEnd && referenceDate > coverageEnd) return referenceDate
+  return referenceDate
+}
+
+export default function SummerHotspotsPage({ anchorDate = '' }: Props) {
   const [data, setData] = useState<Awaited<ReturnType<typeof fetchHotspotData>>>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -41,6 +52,7 @@ export default function SummerHotspotsPage() {
   const [topWindow, setTopWindow] = useState<7 | 30>(7)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
+  const referenceDate = anchorDate || localDate()
 
   const load = async () => {
     try {
@@ -48,11 +60,12 @@ export default function SummerHotspotsPage() {
       const next = await fetchHotspotData()
       setData(next)
       setError('')
-      if (next?.version.coverageStart) {
-        const today = localDate()
-        const initial = today >= next.version.coverageStart && today <= next.version.coverageEnd ? today : next.version.coverageStart
+      if (next) {
+        const initial = resolveInitialDate(next.version.coverageStart, next.version.coverageEnd, referenceDate)
         setSelectedDate(initial)
         setCalendarMonth(initial.slice(0, 7))
+        setDateStart(referenceDate)
+        setDateEnd('')
       }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '热点数据读取失败')
@@ -61,6 +74,15 @@ export default function SummerHotspotsPage() {
     }
   }
   useEffect(() => { load() }, [])
+  useEffect(() => {
+    if (!data) return
+    const initial = resolveInitialDate(data.version.coverageStart, data.version.coverageEnd, referenceDate)
+    setSelectedDate(initial)
+    setCalendarMonth(initial.slice(0, 7))
+    setDateStart(referenceDate)
+    setDateEnd('')
+    setPage(1)
+  }, [referenceDate])
 
   const rows = data?.rows || []
   const provinces = useMemo(() => [...new Set(rows.map(row => row.province))].sort((a, b) => a.localeCompare(b, 'zh-CN')), [rows])
@@ -74,7 +96,7 @@ export default function SummerHotspotsPage() {
   ), [rows, province, city, category, heat, dateStart, dateEnd])
 
   useEffect(() => { setPage(1) }, [province, city, category, heat, dateStart, dateEnd, pageSize])
-  const today = localDate()
+  const today = referenceDate
   const todayCount = rows.filter(row => activeOn(row, today)).length
   const next7End = addDays(today, 6)
   const next7Count = rows.filter(row => intersects(row, today, next7End)).length
@@ -95,7 +117,7 @@ export default function SummerHotspotsPage() {
 
   const topRows = useMemo(() => {
     const end = addDays(today, topWindow - 1)
-    return rows.filter(row => intersects(row, today, end))
+    return rows.filter(row => row.startDate >= today && row.startDate <= end)
       .sort((a, b) => heatRank[b.heat] - heatRank[a.heat] || a.startDate.localeCompare(b.startDate) || a.name.localeCompare(b.name, 'zh-CN'))
       .slice(0, 12)
   }, [rows, today, topWindow])
@@ -149,13 +171,13 @@ export default function SummerHotspotsPage() {
   return <div className="hotspot-page">
     <section className="hotspot-page-head">
       <div><span className="eyebrow">SUMMER REVENUE HOTSPOTS</span><h2>暑期收益热点</h2><p>未来需求事件日历 · 省区热度定位 · 核心热点跟踪</p></div>
-      <div className="hotspot-version"><small>热点数据版本</small><b>{data.version.versionNumber}</b><span>{new Date(data.version.updatedAt).toLocaleString('zh-CN', { hour12: false })} 更新</span></div>
+      <div className="hotspot-version"><small>热点数据版本</small><b>{data.version.versionNumber}</b><span>{new Date(data.version.updatedAt).toLocaleString('zh-CN', { hour12: false })} 更新</span><em>观察基准日：{today || '--'}</em></div>
     </section>
 
     <div className="hotspot-kpis">
       <article><span className="hotspot-kpi-icon blue"><Flame/></span><div><small>热点总数</small><b>{data.summary.total}</b><em>条</em></div></article>
       <article><span className="hotspot-kpi-icon cyan"><MapPinned/></span><div><small>覆盖省区数</small><b>{data.summary.provinceCount}</b><em>个</em></div></article>
-      <article><span className="hotspot-kpi-icon orange"><CalendarDays/></span><div><small>今日 / 近7天</small><b>{todayCount}<i>/</i>{next7Count}</b><em>条</em></div></article>
+      <article><span className="hotspot-kpi-icon orange"><CalendarDays/></span><div><small>基准日 / 近7天</small><b>{todayCount}<i>/</i>{next7Count}</b><em>条</em></div></article>
       <article><span className="hotspot-kpi-icon purple"><Sparkles/></span><div><small>高热度城市数</small><b>{data.summary.highHeatCityCount}</b><em>个</em></div></article>
     </div>
 
@@ -198,7 +220,7 @@ export default function SummerHotspotsPage() {
         </button>)}</div>
       </section>
       <section className="hotspot-card top-hotspot-list">
-        <header><div><h3>核心热点Top榜</h3><p>按热度与临近日期综合展示</p></div><div><button className={topWindow === 7 ? 'active' : ''} onClick={() => setTopWindow(7)}>未来7天</button><button className={topWindow === 30 ? 'active' : ''} onClick={() => setTopWindow(30)}>未来30天</button></div></header>
+        <header><div><h3>核心热点Top榜</h3><p>按当前D0之后新发生热点展示，持续中热点请看日历与明细</p></div><div><button className={topWindow === 7 ? 'active' : ''} onClick={() => setTopWindow(7)}>未来7天</button><button className={topWindow === 30 ? 'active' : ''} onClick={() => setTopWindow(30)}>未来30天</button></div></header>
         <div className="hotspot-mini-table"><table><thead><tr><th>日期</th><th>城市 / 省区</th><th>热点名称</th><th>类型</th><th>地点</th><th>规模</th><th>热度</th></tr></thead><tbody>{topRows.map(row => <tr key={row.id}><td>{row.startDate.slice(5)}</td><td><b>{row.city}</b><small>{row.province}</small></td><td>{row.name}</td><td>{row.categoryGroup}</td><td>{row.venue}</td><td>{row.scale}</td><td><span className={`heat heat-${row.heat}`}>{row.heat}</span></td></tr>)}</tbody></table></div>
       </section>
     </div>
